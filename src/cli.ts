@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import { printBanner } from "./ui/banner.js";
+import { startSpinner, stopSpinner } from "./ui/spinner.js";
+import { fmt } from "./ui/format.js";
 
 export function createCli() {
   const program = new Command()
@@ -21,9 +24,26 @@ export function createCli() {
       console.log("goodbye Rayyan")
     })
 
+  program
+    .command("banner")
+    .description("Show the welcome banner")
+    .action(() => {
+      printBanner();
+    });
+
   program.action(() => {
     program.help();
   });
+
+  program
+    .command("spin")
+    .description("Spinner demo")
+    .action(async () => {
+      startSpinner("Thinking…");
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      stopSpinner();
+      console.log(fmt.success("Done"));
+    });
 
   return program;
 }
