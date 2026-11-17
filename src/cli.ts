@@ -3,6 +3,7 @@ import { printBanner } from "./ui/banner.js";
 import { startSpinner, stopSpinner } from "./ui/spinner.js";
 import { fmt } from "./ui/format.js";
 import { checkEnvironment, requireApiKey } from "./config/env.js";
+import { runQuery } from "./agent/run-query.js";
 
 export function createCli() {
   const program = new Command()
@@ -24,6 +25,16 @@ export function createCli() {
     .action(() => {
       console.log("goodbye Rayyan")
     })
+
+      program
+    .command("talk")
+    .description("Send one prompt to the agent")
+    .argument("<prompt>", "The prompt to send to the agent")
+    .option("-v, --verbose", "Show full raw messages", false)
+    .action(async (prompt: string, opts: { verbose: boolean }) => {
+      requireApiKey();
+      await runQuery(prompt, { verbose: opts.verbose });
+    });
 
   program
     .command("banner")
