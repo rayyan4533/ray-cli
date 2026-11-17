@@ -4,6 +4,18 @@ import { startSpinner, stopSpinner } from "./ui/spinner.js";
 import { fmt } from "./ui/format.js";
 import { checkEnvironment, requireApiKey } from "./config/env.js";
 import { runQuery } from "./agent/run-query.js";
+import { parseCliMode, type CliMode } from "./agent/modes.js";
+
+
+function parseMode(value: string): CliMode {
+  const mode = parseCliMode(value);
+  if (!mode) {
+    throw new Error(`Invalid mode "${value}". Use agent, ask, or plan.`);
+  }
+  return mode;
+}
+
+
 
 export function createCli() {
   const program = new Command()
@@ -26,14 +38,15 @@ export function createCli() {
       console.log("goodbye Rayyan")
     })
 
-      program
+     program
     .command("talk")
     .description("Send one prompt to the agent")
     .argument("<prompt>", "The prompt to send to the agent")
+    .option("-m, --mode <mode>", "agent | ask | plan", "agent")
     .option("-v, --verbose", "Show full raw messages", false)
-    .action(async (prompt: string, opts: { verbose: boolean }) => {
+    .action(async (prompt: string, opts: { mode: string; verbose: boolean }) => {
       requireApiKey();
-      await runQuery(prompt, { verbose: opts.verbose });
+      await runQuery(prompt, { mode: parseMode(opts.mode), verbose: opts.verbose });
     });
 
   program
