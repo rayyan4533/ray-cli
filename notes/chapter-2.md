@@ -26,8 +26,8 @@ Pattern used everywhere in the UI files: **build strings, then print them.**
 | ora | animated spinner (redraws one line on a timer) | "Thinking…" while the agent works |
 | @types/figlet | type info for figlet (dev dependency only) | |
 
-Fix over the teacher: `@types/figlet` is a dev dependency (types are only needed
-while coding), not a regular dependency.
+`@types/figlet` is a dev dependency (types are only needed while coding), not a
+regular dependency.
 
 ## Files
 - `src/ui/format.ts` — `fmt`: an object of small functions named by meaning

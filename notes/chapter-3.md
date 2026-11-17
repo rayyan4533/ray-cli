@@ -53,13 +53,14 @@ ray-cli doctor
   `ANTHROPIC_API_KEY= pnpm dev doctor` safely tests the "missing key" path
   without touching `.env`.
 
-## Teacher's code quirks fixed here
-- Teacher's `doctor` used `Number(stdout.slice(1)) < 18`. `"26.12.0"` is not a
-  number, so `Number(...)` is `NaN`, and `NaN < 18` is always false: the version
-  check could never fail. We parse the major version properly and keep all
-  checks in `checkEnvironment` instead of duplicating them in `cli.ts`.
-- Teacher's error message said "copy `.env.example`" but the file was not in the
-  repo. We committed it.
+## Pitfalls avoided
+- `Number(stdout.slice(1)) < 18` looks like a version check but is broken:
+  `"26.12.0"` is not a number, so `Number(...)` is `NaN`, and `NaN < 18` is
+  always false, so the check could never fail. We parse the major version
+  properly and keep all checks in one place (`checkEnvironment`) instead of
+  duplicating them in `cli.ts`.
+- An error message that says "copy `.env.example`" is only useful if that file
+  really is in the repo. We committed it.
 
 ## Known rough edge
 A missing key still prints a Node stack trace, because nothing catches the

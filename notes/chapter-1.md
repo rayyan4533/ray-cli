@@ -47,8 +47,8 @@ which needs a post-install script, and pnpm blocks those by default.
 - `process.argv` is everything typed: `["node", "index.ts", "hello"]`.
 - `.command(name).description(...).action(fn)` registers a command.
 - `program.action(...)` is the fallback when no command is typed.
-- Our fix over the teacher's code: the program is named `ray-cli` everywhere
-  (the teacher mixed `cursor-cli` and `chai-cli`).
+- The program is named `ray-cli` everywhere: one consistent name in `.name(...)`,
+  the help screen and the banner.
 - `build` and `start` scripts were deliberately left out for now.
 
 ## Try it
