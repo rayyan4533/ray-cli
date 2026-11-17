@@ -3,7 +3,7 @@ import boxen from "boxen";
 import figlet from "figlet";
 
 export function printBanner(): void {
-    const title = figlet.textSync("ray-cli", { font: "Standard" });
+    const title = figlet.textSync("ray-cli", { font: "Standard", });
     const panel = boxen(
         chalk.cyan("Learn the Claude Agent SDK\n") +
         chalk.dim("Full Production Ready"),

@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { printBanner } from "./ui/banner.js";
 import { startSpinner, stopSpinner } from "./ui/spinner.js";
 import { fmt } from "./ui/format.js";
+import { checkEnvironment, requireApiKey } from "./config/env.js";
 
 export function createCli() {
   const program = new Command()
@@ -43,6 +44,21 @@ export function createCli() {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       stopSpinner();
       console.log(fmt.success("Done"));
+    });
+
+  program
+    .command("doctor")
+    .description("Check environment is ready")
+    .action(async () => {
+      await checkEnvironment();
+    });
+
+  program
+    .command("whoami")
+    .description("Show the end of your API key")
+    .action(() => {
+      const key = requireApiKey();
+      console.log(`API key ends with ...${key.slice(-4)}`);
     });
 
   return program;
