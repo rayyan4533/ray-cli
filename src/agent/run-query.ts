@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { fmt } from "../ui/format.js";
-
+import { handleMessage } from "./message-handler.js";
+import { startSpinner, stopSpinner } from "../ui/spinner.js";
 export type RunQueryOptions = {
   verbose?: boolean;
 };
@@ -11,22 +12,21 @@ export async function runQuery(
 ): Promise<void> {
   const { verbose = false } = options;
 
-  try {
+    try {
+    startSpinner("Agent working…");
     for await (const message of query({
       prompt,
       options: {
         maxTurns: 5,
-        maxBudgetUsd: 1.0,
+        maxBudgetUsd: 0.5,
         allowedTools: ["Read", "Glob", "Grep"],
       },
     })) {
-      if (verbose) {
-        console.log(fmt.dim(JSON.stringify(message, null, 2)));
-      } else {
-        console.log(fmt.system(`[${message.type}]`));
-      }
+      handleMessage(message, { verbose });
+      if (message.type !== "result") startSpinner("Agent working…");
     }
   } catch (error) {
+    stopSpinner();
     console.error(
       fmt.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
     );
