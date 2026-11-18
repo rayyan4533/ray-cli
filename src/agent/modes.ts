@@ -1,15 +1,17 @@
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { promptBeforeToolUse } from "./permissions.js";
+import { createPermissionHandler } from "./permissions.js";
 
 export type CliMode = "agent" | "ask" | "plan";
 
 const READ_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
-const EDIT_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"];
-const BLOCKED_WRITE_TOOLS = ["Edit", "Write", "Bash"];
+
+const MODEL = "claude-haiku-5-5";
 
 const BASE_OPTIONS: Options = {
+  model: MODEL,
   maxTurns: 10,
   maxBudgetUsd: 0.5,
+  allowedTools: READ_TOOLS,
 };
 
 export function parseCliMode(value: string): CliMode | null {
@@ -30,28 +32,13 @@ export function cliModeToPermissionMode(mode: CliMode): PermissionMode {
   }
 }
 
-export function buildModeOptions(mode: CliMode): Options {
-  switch (mode) {
-    case "agent":
-      return {
-        ...BASE_OPTIONS,
-        permissionMode: "acceptEdits",
-        allowedTools: EDIT_TOOLS,
-        canUseTool: promptBeforeToolUse,
-      };
-    case "ask":
-      return {
-        ...BASE_OPTIONS,
-        permissionMode: "dontAsk",
-        allowedTools: READ_TOOLS,
-        disallowedTools: BLOCKED_WRITE_TOOLS,
-      };
-    case "plan":
-      return {
-        ...BASE_OPTIONS,
-        permissionMode: "plan",
-        allowedTools: READ_TOOLS,
-        disallowedTools: BLOCKED_WRITE_TOOLS,
-      };
-  }
+export function buildModeOptions(
+  mode: CliMode,
+  getMode: () => CliMode = () => mode
+): Options {
+  return {
+    ...BASE_OPTIONS,
+    permissionMode: cliModeToPermissionMode(mode),
+    canUseTool: createPermissionHandler(getMode),
+  };
 }

@@ -5,6 +5,7 @@ import { fmt } from "./ui/format.js";
 import { checkEnvironment, requireApiKey } from "./config/env.js";
 import { runQuery } from "./agent/run-query.js";
 import { parseCliMode, type CliMode } from "./agent/modes.js";
+import { startChat } from "./commands/chat.js";
 
 
 function parseMode(value: string): CliMode {
@@ -59,6 +60,16 @@ export function createCli() {
   program.action(() => {
     program.help();
   });
+
+    program
+    .command("chat")
+    .description("Interactive chat session")
+    .option("-m, --mode <mode>", "agent | ask | plan", "agent")
+    .option("-v, --verbose", "Show message types", false)
+    .action(async (opts: { mode: string; verbose: boolean }) => {
+      requireApiKey();
+      await startChat({ mode: parseMode(opts.mode), verbose: opts.verbose });
+    });
 
   program
     .command("spin")
