@@ -6,7 +6,7 @@ import { checkEnvironment, requireApiKey } from "./config/env.js";
 import { runQuery } from "./agent/run-query.js";
 import { parseCliMode, type CliMode } from "./agent/modes.js";
 import { startChat } from "./commands/chat.js";
-
+import { wakeUp } from "./commands/wake-up.js";
 
 function parseMode(value: string): CliMode {
   const mode = parseCliMode(value);
@@ -60,6 +60,13 @@ export function createCli() {
   program.action(() => {
     program.help();
   });
+
+    program
+    .command("wakeup")
+    .description("Banner, preflight, mode picker, then chat")
+    .action(async () => {
+      await wakeUp();
+    });
 
     program
     .command("chat")
