@@ -4,9 +4,9 @@ import { stopSpinner } from "../ui/spinner.js";
 
 export type MessageHandlerOptions = {
   verbose?: boolean;
+  model?: string;
 };
-
-type Block = { type: string; [key: string]: unknown };
+type Block = { type: string;[key: string]: unknown };
 
 function getBlocks(content: unknown): Block[] {
   if (!Array.isArray(content)) return [];
@@ -23,12 +23,11 @@ function getText(content: unknown): string {
     .map((b) => b.text as string)
     .join("\n");
 }
-
 export function handleMessage(
   message: SDKMessage,
   options: MessageHandlerOptions = {}
 ): void {
-  const { verbose = false } = options;
+  const { verbose = false, model } = options;
 
   stopSpinner();
 
@@ -84,7 +83,7 @@ export function handleMessage(
         console.log(fmt.error(`Stopped: ${message.subtype}`));
       }
       console.log(
-        fmt.dim(`Done · ${message.num_turns} turns · $${message.total_cost_usd.toFixed(4)}`)
+        fmt.dim(`Done · ${model ? `${model} · ` : ""}${message.num_turns} turns · $${message.total_cost_usd.toFixed(4)}`)
       );
       break;
     }

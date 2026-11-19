@@ -7,11 +7,13 @@ import {
   type CliMode,
 } from "../agent/modes.js";
 import { SLASH_COMMANDS } from "../config/constants.js";
+import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "../config/models.js";
 import { fmt } from "../ui/format.js";
 import { startSpinner, stopSpinner } from "../ui/spinner.js";
 
 export type ChatOptions = {
   mode?: CliMode;
+  model?: ModelId;
   verbose?: boolean;
 };
 
@@ -62,6 +64,23 @@ async function handleSlashCommand(
       return "handled";
     }
 
+    case "/model": {
+      if (!arg) {
+        console.log(fmt.mode(`Current model: ${session.model}`));
+        console.log(fmt.dim(`Choices: ${MODEL_IDS.join(", ")}`));
+        return "handled";
+      }
+      const newModel = parseModelId(arg);
+      if (!newModel) {
+        console.log(fmt.error(`Unknown model "${arg}". Choices: ${MODEL_IDS.join(", ")}`));
+        return "handled";
+      }
+      await session.query.setModel(newModel);
+      session.model = newModel;
+      console.log(fmt.mode(`Model switched to ${newModel}`));
+      return "handled";
+    }
+
     default:
       console.log(fmt.error(`Unknown command: ${command}. Type /help.`));
       return "handled";
@@ -94,18 +113,18 @@ function createTurnGate() {
 }
 
 export async function startChat(options: ChatOptions = {}): Promise<void> {
-  const { mode: initialMode = "agent", verbose = false } = options;
-  const session = createSession(initialMode);
+  const { mode: initialMode = "agent", model = DEFAULT_MODEL, verbose = false } = options;
+  const session = createSession(initialMode, model);
   const turnGate = createTurnGate();
   let ended = false;
 
-  console.log(fmt.mode(`Chat started in ${initialMode} mode`));
+  console.log(fmt.mode(`Chat started in ${initialMode} mode · ${model}`));
   printSlashHelp();
 
   const processing = (async () => {
     try {
       for await (const message of session.query) {
-        handleMessage(message, { verbose });
+        handleMessage(message, { verbose, model: session.model });
         if (message.type === "result") {
           turnGate.finish();
         } else if (turnGate.active) {

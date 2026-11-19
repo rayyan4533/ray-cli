@@ -1,17 +1,21 @@
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createPermissionHandler } from "./permissions.js";
+import { DEFAULT_MODEL, type ModelId } from "../config/models.js";
 
 export type CliMode = "agent" | "ask" | "plan";
 
 const READ_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
 
-const MODEL = "claude-haiku-5-5";
-
 const BASE_OPTIONS: Options = {
-  model: MODEL,
   maxTurns: 10,
   maxBudgetUsd: 0.5,
   allowedTools: READ_TOOLS,
+};
+
+export type ModeSettings = {
+  mode: CliMode;
+  model?: ModelId;
+  getMode?: () => CliMode;
 };
 
 export function parseCliMode(value: string): CliMode | null {
@@ -32,12 +36,14 @@ export function cliModeToPermissionMode(mode: CliMode): PermissionMode {
   }
 }
 
-export function buildModeOptions(
-  mode: CliMode,
-  getMode: () => CliMode = () => mode
-): Options {
+export function buildModeOptions({
+  mode,
+  model = DEFAULT_MODEL,
+  getMode = () => mode,
+}: ModeSettings): Options {
   return {
     ...BASE_OPTIONS,
+    model,
     permissionMode: cliModeToPermissionMode(mode),
     canUseTool: createPermissionHandler(getMode),
   };

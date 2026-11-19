@@ -6,6 +6,7 @@ import { checkEnvironment, requireApiKey } from "./config/env.js";
 import { runQuery } from "./agent/run-query.js";
 import { parseCliMode, type CliMode } from "./agent/modes.js";
 import { startChat } from "./commands/chat.js";
+import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "./config/models.js";
 import { wakeUp } from "./commands/wake-up.js";
 
 function parseMode(value: string): CliMode {
@@ -16,6 +17,13 @@ function parseMode(value: string): CliMode {
   return mode;
 }
 
+function parseModel(value: string): ModelId {
+  const model = parseModelId(value);
+  if (!model) {
+    throw new Error(`Invalid model "${value}". Use ${MODEL_IDS.join(", ")}.`);
+  }
+  return model;
+}
 
 
 export function createCli() {
@@ -44,10 +52,15 @@ export function createCli() {
     .description("Send one prompt to the agent")
     .argument("<prompt>", "The prompt to send to the agent")
     .option("-m, --mode <mode>", "agent | ask | plan", "agent")
+    .option("--model <id>", MODEL_IDS.join(" | "), DEFAULT_MODEL)
     .option("-v, --verbose", "Show full raw messages", false)
-    .action(async (prompt: string, opts: { mode: string; verbose: boolean }) => {
+    .action(async (prompt: string, opts: { mode: string; model: string; verbose: boolean }) => {
       requireApiKey();
-      await runQuery(prompt, { mode: parseMode(opts.mode), verbose: opts.verbose });
+      await runQuery(prompt, {
+        mode: parseMode(opts.mode),
+        model: parseModel(opts.model),
+        verbose: opts.verbose,
+      });
     });
 
   program
@@ -72,10 +85,15 @@ export function createCli() {
     .command("chat")
     .description("Interactive chat session")
     .option("-m, --mode <mode>", "agent | ask | plan", "agent")
+    .option("--model <id>", MODEL_IDS.join(" | "), DEFAULT_MODEL)
     .option("-v, --verbose", "Show message types", false)
-    .action(async (opts: { mode: string; verbose: boolean }) => {
+    .action(async (opts: { mode: string; model: string; verbose: boolean }) => {
       requireApiKey();
-      await startChat({ mode: parseMode(opts.mode), verbose: opts.verbose });
+      await startChat({
+        mode: parseMode(opts.mode),
+        model: parseModel(opts.model),
+        verbose: opts.verbose,
+      });
     });
 
   program

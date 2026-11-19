@@ -3,9 +3,11 @@ import { fmt } from "../ui/format.js";
 import { handleMessage } from "./message-handler.js";
 import { startSpinner, stopSpinner } from "../ui/spinner.js";
 import { buildModeOptions, type CliMode } from "./modes.js";
+import { DEFAULT_MODEL, type ModelId } from "../config/models.js";
 
 export type RunQueryOptions = {
   mode?: CliMode;
+  model?: ModelId;
   verbose?: boolean;
 };
 
@@ -13,15 +15,15 @@ export async function runQuery(
   prompt: string,
   options: RunQueryOptions = {}
 ): Promise<void> {
-  const { verbose = false, mode = "agent" } = options;
+  const { verbose = false, mode = "agent", model = DEFAULT_MODEL } = options;
 
-    try {
+  try {
     startSpinner("Agent working…");
-       for await (const message of query({
+    for await (const message of query({
       prompt,
-      options: buildModeOptions(mode),
+      options: buildModeOptions({ mode, model }),
     })) {
-      handleMessage(message, { verbose });
+      handleMessage(message, { verbose, model });
       if (message.type !== "result") startSpinner("Agent working…");
     }
   } catch (error) {
