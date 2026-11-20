@@ -11,10 +11,14 @@ import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "../config/
 import { fmt } from "../ui/format.js";
 import { startSpinner, stopSpinner } from "../ui/spinner.js";
 
+import { listProjectSessions, printSessions, renameProjectSession } from "../agent/sessions.js";
+
 export type ChatOptions = {
   mode?: CliMode;
   model?: ModelId;
   verbose?: boolean;
+  resume?: string;
+  continueLast?: boolean;
 };
 
 type SlashResult = "not-slash" | "handled" | "exit";
@@ -32,7 +36,8 @@ async function handleSlashCommand(
   session: AgentSession
 ): Promise<SlashResult> {
   if (!line.startsWith("/")) return "not-slash";
-  const [command, arg] = line.split(/\s+/);
+  const [command, ...rest] = line.split(/\s+/);
+  const arg = rest.join(" ");
 
   switch (command) {
     case "/help":
@@ -81,6 +86,25 @@ async function handleSlashCommand(
       return "handled";
     }
 
+    case "/sessions": {
+      printSessions(await listProjectSessions());
+      return "handled";
+    }
+
+    case "/rename": {
+      if (!session.id) {
+        console.log(fmt.error("Send a message first. The session is saved after the first turn."));
+        return "handled";
+      }
+      if (!arg) {
+        console.log(fmt.error("Usage: /rename <title>"));
+        return "handled";
+      }
+      await renameProjectSession(session.id, arg);
+      console.log(fmt.mode(`Session renamed to "${arg}"`));
+      return "handled";
+    }
+
     default:
       console.log(fmt.error(`Unknown command: ${command}. Type /help.`));
       return "handled";
@@ -113,17 +137,27 @@ function createTurnGate() {
 }
 
 export async function startChat(options: ChatOptions = {}): Promise<void> {
-  const { mode: initialMode = "agent", model = DEFAULT_MODEL, verbose = false } = options;
-  const session = createSession(initialMode, model);
+  const {
+    mode: initialMode = "agent",
+    model = DEFAULT_MODEL,
+    verbose = false,
+    resume,
+    continueLast = false,
+  } = options;
+  const session = createSession(initialMode, model, { resume, continueLast });
   const turnGate = createTurnGate();
   let ended = false;
 
-  console.log(fmt.mode(`Chat started in ${initialMode} mode · ${model}`));
+  const resuming = resume ? ` · resuming ${resume.slice(0, 8)}` : continueLast ? " · continuing last" : "";
+  console.log(fmt.mode(`Chat started in ${initialMode} mode · ${model}${resuming}`));
   printSlashHelp();
 
   const processing = (async () => {
     try {
       for await (const message of session.query) {
+        if (message.type === "system" && message.subtype === "init") {
+          session.id = message.session_id;
+        }
         handleMessage(message, { verbose, model: session.model });
         if (message.type === "result") {
           turnGate.finish();

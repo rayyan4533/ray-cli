@@ -8,15 +8,36 @@ export type AgentSession = {
   inputQueue: InputQueue;
   mode: CliMode;
   model: ModelId;
+  id: string | null;
 };
 
-export function createSession(initialMode: CliMode, model: ModelId): AgentSession {
+export type ResumeSettings = {
+  resume?: string;
+  continueLast?: boolean;
+};
+
+export function createSession(
+  initialMode: CliMode,
+  model: ModelId,
+  resumeSettings: ResumeSettings = {}
+): AgentSession {
   const inputQueue = new InputQueue();
   const agentQuery = query({
     prompt: inputQueue.generator(),
-    options: buildModeOptions({ mode: initialMode, model, getMode: () => session.mode }),
+    options: buildModeOptions({
+      mode: initialMode,
+      model,
+      getMode: () => session.mode,
+      ...resumeSettings,
+    }),
   });
 
-  const session: AgentSession = { query: agentQuery, inputQueue, mode: initialMode, model };
+  const session: AgentSession = {
+    query: agentQuery,
+    inputQueue,
+    mode: initialMode,
+    model,
+    id: resumeSettings.resume ?? null,
+  };
   return session;
 }

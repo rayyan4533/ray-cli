@@ -16,8 +16,9 @@ export type ModeSettings = {
   mode: CliMode;
   model?: ModelId;
   getMode?: () => CliMode;
+  resume?: string;
+  continueLast?: boolean;
 };
-
 export function parseCliMode(value: string): CliMode | null {
   if (value === "agent" || value === "ask" || value === "plan") {
     return value;
@@ -40,11 +41,15 @@ export function buildModeOptions({
   mode,
   model = DEFAULT_MODEL,
   getMode = () => mode,
+  resume,
+  continueLast = false,
 }: ModeSettings): Options {
   return {
     ...BASE_OPTIONS,
     model,
     permissionMode: cliModeToPermissionMode(mode),
     canUseTool: createPermissionHandler(getMode),
+    resume,
+    continue: continueLast,
   };
 }
