@@ -2,6 +2,7 @@ import { query, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { buildModeOptions, type CliMode } from "./modes.js";
 import { InputQueue } from "./input-queue.js";
 import type { ModelId } from "../config/models.js";
+import type { AskApproval } from "./permissions.js";
 
 export type AgentSession = {
   query: Query;
@@ -14,6 +15,7 @@ export type AgentSession = {
 export type ResumeSettings = {
   resume?: string;
   continueLast?: boolean;
+  ask?: AskApproval;
 };
 
 export function createSession(

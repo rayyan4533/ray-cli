@@ -16,35 +16,32 @@ function getBlocks(content: unknown): Block[] {
   );
 }
 
-function getText(content: unknown): string {
+export function getText(content: unknown): string {
   if (typeof content === "string") return content;
   return getBlocks(content)
     .filter((b) => b.type === "text" && typeof b.text === "string")
     .map((b) => b.text as string)
     .join("\n");
 }
-export function handleMessage(
+export function formatMessage(
   message: SDKMessage,
   options: MessageHandlerOptions = {}
-): void {
+): string[] {
   const { verbose = false, model } = options;
+  const lines: string[] = [];
 
-  stopSpinner();
-
-  if (verbose) {
-    console.log(fmt.dim(`[${message.type}]`));
-  }
+  if (verbose) lines.push(fmt.dim(`[${message.type}]`));
 
   switch (message.type) {
     case "system": {
       if (message.subtype === "init") {
-        console.log(
+        lines.push(
           fmt.system(
             `Session started · model: ${message.model} · id: ${message.session_id.slice(0, 8)}…`
           )
         );
       } else if (message.subtype === "compact_boundary") {
-        console.log(fmt.system("Context compacted — older history summarized"));
+        lines.push(fmt.system("Context compacted — older history summarized"));
       }
       break;
     }
@@ -52,13 +49,11 @@ export function handleMessage(
     case "assistant": {
       const content = message.message.content;
       const text = getText(content).trim();
-      if (text) console.log(fmt.assistant(text));
+      if (text) lines.push(fmt.assistant(text));
 
       for (const block of getBlocks(content)) {
         if (block.type === "tool_use") {
-          console.log(
-            fmt.tool(`  → ${block.name} ${truncate(JSON.stringify(block.input), 80)}`)
-          );
+          lines.push(fmt.tool(`  → ${block.name} ${truncate(JSON.stringify(block.input), 80)}`));
         }
       }
       break;
@@ -68,7 +63,7 @@ export function handleMessage(
       for (const block of getBlocks(message.message.content)) {
         if (block.type === "tool_result") {
           const result = getText(block.content).trim();
-          if (result) console.log(fmt.toolResult(`  ← ${truncate(result, 120)}`));
+          if (result) lines.push(fmt.toolResult(`  ← ${truncate(result, 120)}`));
         }
       }
       break;
@@ -76,14 +71,13 @@ export function handleMessage(
 
     case "result": {
       if (message.subtype === "success") {
-        if (message.result?.trim()) {
-          console.log(fmt.success("\n" + message.result.trim()));
-        }
+        if (message.result?.trim()) lines.push(fmt.success("\n" + message.result.trim()));
       } else {
-        console.log(fmt.error(`Stopped: ${message.subtype}`));
+        lines.push(fmt.error(`Stopped: ${message.subtype}`));
       }
-      console.log(
-        fmt.dim(`Done · ${model ? `${model} · ` : ""}${message.num_turns} turns · $${message.total_cost_usd.toFixed(4)}`)
+      const label = model ? `${model} · ` : "";
+      lines.push(
+        fmt.dim(`Done · ${label}${message.num_turns} turns · $${message.total_cost_usd.toFixed(4)}`)
       );
       break;
     }
@@ -91,4 +85,14 @@ export function handleMessage(
     default:
       break;
   }
+
+  return lines;
+}
+
+export function handleMessage(
+  message: SDKMessage,
+  options: MessageHandlerOptions = {}
+): void {
+  stopSpinner();
+  for (const line of formatMessage(message, options)) console.log(line);
 }

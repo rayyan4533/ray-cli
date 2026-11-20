@@ -21,19 +21,22 @@ export type ChatOptions = {
   continueLast?: boolean;
 };
 
-type SlashResult = "not-slash" | "handled" | "exit";
+export type SlashResult = "not-slash" | "handled" | "exit";
 
-function printSlashHelp(): void {
-  console.log(fmt.label("\nSlash commands:"));
+type Print = (line: string) => void;
+
+function printSlashHelp(print: Print): void {
+  print(fmt.label("\nSlash commands:"));
   for (const { command, description } of SLASH_COMMANDS) {
-    console.log(fmt.dim(`  ${command.padEnd(22)} ${description}`));
+    print(fmt.dim(`  ${command.padEnd(22)} ${description}`));
   }
-  console.log();
+  print("");
 }
 
-async function handleSlashCommand(
+export async function handleSlashCommand(
   line: string,
-  session: AgentSession
+  session: AgentSession,
+  print: Print = console.log
 ): Promise<SlashResult> {
   if (!line.startsWith("/")) return "not-slash";
   const [command, ...rest] = line.split(/\s+/);
@@ -41,7 +44,7 @@ async function handleSlashCommand(
 
   switch (command) {
     case "/help":
-      printSlashHelp();
+      printSlashHelp(print);
       return "handled";
 
     case "/exit":
@@ -50,9 +53,9 @@ async function handleSlashCommand(
     case "/context": {
       try {
         const usage = await session.query.getContextUsage();
-        console.log(fmt.system(JSON.stringify(usage, null, 2)));
+        print(fmt.system(JSON.stringify(usage, null, 2)));
       } catch {
-        console.log(fmt.error("Context usage not available for this session."));
+        print(fmt.error("Context usage not available for this session."));
       }
       return "handled";
     }
@@ -60,29 +63,29 @@ async function handleSlashCommand(
     case "/mode": {
       const newMode = arg ? parseCliMode(arg) : null;
       if (!newMode) {
-        console.log(fmt.error("Usage: /mode agent|ask|plan"));
+        print(fmt.error("Usage: /mode agent|ask|plan"));
         return "handled";
       }
       await session.query.setPermissionMode(cliModeToPermissionMode(newMode));
       session.mode = newMode;
-      console.log(fmt.mode(`Mode switched to ${newMode}`));
+      print(fmt.mode(`Mode switched to ${newMode}`));
       return "handled";
     }
 
     case "/model": {
       if (!arg) {
-        console.log(fmt.mode(`Current model: ${session.model}`));
-        console.log(fmt.dim(`Choices: ${MODEL_IDS.join(", ")}`));
+        print(fmt.mode(`Current model: ${session.model}`));
+        print(fmt.dim(`Choices: ${MODEL_IDS.join(", ")}`));
         return "handled";
       }
       const newModel = parseModelId(arg);
       if (!newModel) {
-        console.log(fmt.error(`Unknown model "${arg}". Choices: ${MODEL_IDS.join(", ")}`));
+        print(fmt.error(`Unknown model "${arg}". Choices: ${MODEL_IDS.join(", ")}`));
         return "handled";
       }
       await session.query.setModel(newModel);
       session.model = newModel;
-      console.log(fmt.mode(`Model switched to ${newModel}`));
+      print(fmt.mode(`Model switched to ${newModel}`));
       return "handled";
     }
 
@@ -93,20 +96,20 @@ async function handleSlashCommand(
 
     case "/rename": {
       if (!session.id) {
-        console.log(fmt.error("Send a message first. The session is saved after the first turn."));
+        print(fmt.error("Send a message first. The session is saved after the first turn."));
         return "handled";
       }
       if (!arg) {
-        console.log(fmt.error("Usage: /rename <title>"));
+        print(fmt.error("Usage: /rename <title>"));
         return "handled";
       }
       await renameProjectSession(session.id, arg);
-      console.log(fmt.mode(`Session renamed to "${arg}"`));
+      print(fmt.mode(`Session renamed to "${arg}"`));
       return "handled";
     }
 
     default:
-      console.log(fmt.error(`Unknown command: ${command}. Type /help.`));
+      print(fmt.error(`Unknown command: ${command}. Type /help.`));
       return "handled";
   }
 }
@@ -150,7 +153,7 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
 
   const resuming = resume ? ` · resuming ${resume.slice(0, 8)}` : continueLast ? " · continuing last" : "";
   console.log(fmt.mode(`Chat started in ${initialMode} mode · ${model}${resuming}`));
-  printSlashHelp();
+  printSlashHelp(console.log);
 
   const processing = (async () => {
     try {

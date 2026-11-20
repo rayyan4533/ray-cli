@@ -9,6 +9,7 @@ import { startChat } from "./commands/chat.js";
 import { findSession, listProjectSessions, printSessions } from "./agent/sessions.js";
 import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "./config/models.js";
 import { wakeUp } from "./commands/wake-up.js";
+import { startUi } from "./commands/ui.js";
 
 function parseMode(value: string): CliMode {
   const mode = parseCliMode(value);
@@ -108,6 +109,23 @@ export function createCli() {
         });
       }
     );
+
+  program
+    .command("ui")
+    .description("Full-screen chat")
+    .option("-m, --mode <mode>", "agent | ask | plan", "agent")
+    .option("--model <id>", MODEL_IDS.join(" | "), DEFAULT_MODEL)
+    .option("-r, --resume <id>", "Resume a session by id")
+    .action(async (opts: { mode: string; model: string; resume?: string }) => {
+      requireApiKey();
+      let resume: string | undefined;
+      if (opts.resume) {
+        const found = await findSession(opts.resume);
+        if (!found) throw new Error(`No session starts with "${opts.resume}". Run: pnpm dev sessions`);
+        resume = found.sessionId;
+      }
+      await startUi({ mode: parseMode(opts.mode), model: parseModel(opts.model), resume });
+    });
 
   program
     .command("sessions")

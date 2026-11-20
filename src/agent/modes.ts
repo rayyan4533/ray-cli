@@ -1,5 +1,5 @@
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { createPermissionHandler } from "./permissions.js";
+import { createPermissionHandler, type AskApproval } from "./permissions.js";
 import { DEFAULT_MODEL, type ModelId } from "../config/models.js";
 
 export type CliMode = "agent" | "ask" | "plan";
@@ -18,6 +18,7 @@ export type ModeSettings = {
   getMode?: () => CliMode;
   resume?: string;
   continueLast?: boolean;
+  ask?: AskApproval;
 };
 export function parseCliMode(value: string): CliMode | null {
   if (value === "agent" || value === "ask" || value === "plan") {
@@ -43,12 +44,13 @@ export function buildModeOptions({
   getMode = () => mode,
   resume,
   continueLast = false,
+  ask,
 }: ModeSettings): Options {
   return {
     ...BASE_OPTIONS,
     model,
     permissionMode: cliModeToPermissionMode(mode),
-    canUseTool: createPermissionHandler(getMode),
+    canUseTool: createPermissionHandler(getMode, ask),
     resume,
     continue: continueLast,
   };
