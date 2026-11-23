@@ -19,6 +19,9 @@ import { PANEL_LIST_OFFSET, PANEL_WIDTH, SessionsPanel, panelWindow } from "./Se
 import { useMouse } from "./use-mouse.js";
 import { AVATAR_ROWS, Avatar } from "./Avatar.js";
 import { fitRows } from "./fit-rows.js";
+import { OTHER, REASONS, rateLastRun } from "../../quality/rating.js";
+import type { Score } from "../../quality/db.js";
+import { getLastRunId } from "../../quality/report.js";
 
 // A yes/no question waiting at the bottom: a tool approval or "approve this plan?".
 type Approval = {
@@ -48,6 +51,9 @@ const MODEL_ITEMS: DropdownItem<ModelChoice>[] = MODEL_CHOICES.map((c) => ({
 
 const MENU_WIDTH: Record<MenuKind, number> = { mode: 60, model: 72 };
 
+// The 🙂 rating, step by step: good or bad → a reason (or other / skip) → typed reason.
+type Rating = { step: "score" } | { step: "reason"; score: Score } | { step: "other"; score: Score };
+
 type Status = { mode: CliMode; model: string; id: string | null };
 
 export type AppProps = {
@@ -65,6 +71,8 @@ export function App({ mode, model, resume }: AppProps) {
   const [busy, setBusy] = useState(false);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [planChoice, setPlanChoice] = useState<PlanChoice | null>(null);
+  const [rating, setRating] = useState<Rating | null>(null);
+  const [otherDraft, setOtherDraft] = useState("");
   // How many lines up from the newest you have scrolled (0 = following the newest).
   const [scroll, setScroll] = useState(0);
   const maxScrollRef = useRef(0);
@@ -86,6 +94,7 @@ export function App({ mode, model, resume }: AppProps) {
   const modeLabelRef = useRef<DOMElement>(null);
   const modelLabelRef = useRef<DOMElement>(null);
   const sessionsLabelRef = useRef<DOMElement>(null);
+  const rateRef = useRef<DOMElement>(null);
   // Mode and model choice carry over when you switch sessions.
   const settingsRef = useRef({ mode, choice: model });
 
@@ -220,7 +229,46 @@ export function App({ mode, model, resume }: AppProps) {
       if (key.pageUp) scrollBy(Math.max(middleRows - 2, 1));
       if (key.pageDown) scrollBy(-Math.max(middleRows - 2, 1));
     },
-    { isActive: approval === null && planChoice === null }
+    { isActive: approval === null && planChoice === null && rating === null }
+  );
+
+  function openRating() {
+    if (busy) return print(fmt.error("Wait for the agent to finish, then rate."));
+    if (getLastRunId() === null) return print(fmt.dim("Nothing to rate yet: run a task first."));
+    setMenu(null);
+    setRating({ step: "score" });
+  }
+
+  function finishRating(score: Score, reason: string | null, note: string | null) {
+    print(rateLastRun(score, reason, note));
+    setRating(null);
+    setOtherDraft("");
+  }
+
+  // Rating keys: 1 good / 2 bad, then a reason number, o = other, s = skip. Esc cancels.
+  useInput(
+    (input, key) => {
+      if (!rating || rating.step === "other") return;
+      if (key.escape) return setRating(null);
+      if (rating.step === "score") {
+        if (input === "1" || input === "g") setRating({ step: "reason", score: "good" });
+        if (input === "2" || input === "b") setRating({ step: "reason", score: "bad" });
+        return;
+      }
+      const reason = REASONS[rating.score][Number(input) - 1];
+      if (reason) return finishRating(rating.score, reason, null);
+      if (input === "o") return setRating({ step: "other", score: rating.score });
+      if (input === "s") return finishRating(rating.score, null, null);
+    },
+    { isActive: rating !== null && rating.step !== "other" }
+  );
+
+  // Esc while typing your own reason goes back to the list.
+  useInput(
+    (_input, key) => {
+      if (key.escape && rating?.step === "other") setRating({ step: "reason", score: rating.score });
+    },
+    { isActive: rating?.step === "other" }
   );
 
   // 1 / 2 / 3 picks how to build the plan; 4 or n discards it.
@@ -258,7 +306,11 @@ export function App({ mode, model, resume }: AppProps) {
   // Header (as tall as the avatar, no border) + bottom box take their rows; the middle gets the rest.
   // The bottom is the input (3 rows) or the plan choice (border 2 + 5 lines = 7).
   const HEADER_ROWS = AVATAR_ROWS;
-  const bottomRows = planChoice ? 7 : 3;
+  const bottomRows = planChoice
+    ? 7
+    : rating?.step === "reason"
+      ? 2 + 1 + REASONS[rating.score].length + 1 // border, title, reasons, other/skip line
+      : 3;
   const middleRows = Math.max(rows - HEADER_ROWS - bottomRows, 4);
 
   function scrollBy(amount: number) {
@@ -317,7 +369,8 @@ export function App({ mode, model, resume }: AppProps) {
   // Mouse: click the header's right side to toggle the panel;
   // inside the panel, click a row to select it, click it again to resume; wheel moves.
   useMouse((event) => {
-    if (approval || planChoice) return;
+    if (approval || planChoice || rating) return;
+    if (event.button === "left" && hit(rateRef, event.x, event.y)) return openRating();
 
     if (event.y < HEADER_ROWS) {
       if (event.button !== "left") return;
@@ -372,6 +425,7 @@ export function App({ mode, model, resume }: AppProps) {
     if (line === "/sessions") return void openPanel();
     if (line === "/model") return toggleMenu("model");
     if (line === "/mode") return toggleMenu("mode");
+    if (line === "/rate") return openRating();
 
     print(fmt.label(`You: ${line}`));
 
@@ -385,7 +439,9 @@ export function App({ mode, model, resume }: AppProps) {
       return void controller.plan(parsed.task, parsed.planner);
     }
 
-    const result = await handleSlashCommand(line, session, print);
+    const result = await handleSlashCommand(line, session, print, (question) =>
+      ask(question, "  Yes", "  No")
+    );
     if (result === "exit") return exit();
     if (result === "handled") return syncStatus(session);
 
@@ -493,6 +549,38 @@ export function App({ mode, model, resume }: AppProps) {
           ))}
           <Text>{"  "}4. Don't build (discard the plan)</Text>
         </Box>
+      ) : rating?.step === "score" ? (
+        <Box borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text color="magenta">
+            Rate the last task:  1 👍 good   2 👎 bad   {fmt.dim("(esc cancel)")}
+          </Text>
+        </Box>
+      ) : rating?.step === "reason" ? (
+        <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text color="magenta">{rating.score === "good" ? "👍 What went well?" : "👎 What went wrong?"}</Text>
+          {REASONS[rating.score].map((reason, i) => (
+            <Text key={reason}>
+              {"  "}
+              {i + 1}. {reason}
+            </Text>
+          ))}
+          <Text>
+            {"  "}o. other (type your own) {fmt.dim("·")} s. skip {fmt.dim("· esc cancel")}
+          </Text>
+        </Box>
+      ) : rating?.step === "other" ? (
+        <Box borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text color="magenta">Your reason: </Text>
+          <TextInput
+            value={otherDraft}
+            onChange={setOtherDraft}
+            onSubmit={(value) => {
+              const note = value.trim();
+              finishRating(rating.score, note ? OTHER : null, note || null);
+            }}
+            placeholder="what happened? (enter to save, esc to go back)"
+          />
+        </Box>
       ) : approval ? (
         <Box borderStyle="round" borderColor="yellow" paddingX={1}>
           <Text color="yellow">
@@ -502,13 +590,18 @@ export function App({ mode, model, resume }: AppProps) {
       ) : (
         <Box borderStyle="round" borderColor={busy ? "gray" : "green"} paddingX={1}>
           <Text color={busy ? "gray" : "green"}>{busy ? "… " : "› "}</Text>
-          <TextInput
-            value={draft}
-            onChange={setDraft}
-            onSubmit={submit}
-            focus={!panelOpen && !menu}
-            placeholder={busy ? "Agent working…" : "Message, /plan <task>, /help, or Tab for sessions"}
-          />
+          <Box flexGrow={1}>
+            <TextInput
+              value={draft}
+              onChange={setDraft}
+              onSubmit={submit}
+              focus={!panelOpen && !menu}
+              placeholder={busy ? "Agent working…" : "Message, /plan <task>, /help, or Tab for sessions"}
+            />
+          </Box>
+          <Box ref={rateRef}>
+            <Text dimColor>🙂 rate</Text>
+          </Box>
         </Box>
       )}
     </Box>

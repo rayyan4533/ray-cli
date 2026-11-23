@@ -5,7 +5,11 @@ import { fmt } from "../ui/format.js";
 
 type Print = (line: string) => void;
 
-export type RunContext = { mode: string; model: string };
+export type RunContext = { mode: string; model: string; task?: string; attempt?: number };
+
+// The run you rate with 🙂 or /rate: the last one this ray-cli process saved.
+let lastRunId: number | null = null;
+export const getLastRunId = () => lastRunId;
 
 // Warning signs from the run itself, as one line (or nothing if all is well).
 function signalsLine(summary: RunSummary): string | null {
@@ -34,7 +38,7 @@ export async function finishRun(summary: RunSummary, context: RunContext, print:
   if (signals) print(signals);
 
   try {
-    saveRun({
+    lastRunId = saveRun({
       project: process.cwd(),
       sessionId: summary.sessionId,
       model: context.model,
@@ -48,6 +52,8 @@ export async function finishRun(summary: RunSummary, context: RunContext, print:
       filesChanged: summary.changedFiles.length,
       checks,
       checksPassed: allPassed(checks),
+      task: context.task ? context.task.replace(/\s+/g, " ").slice(0, 200) : null,
+      attempt: context.attempt ?? 0,
     });
   } catch (error) {
     print(fmt.dim(`(run not logged: ${error instanceof Error ? error.message : String(error)})`));

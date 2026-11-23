@@ -35,6 +35,7 @@ export class TaskController {
 
   private tracker = new RunTracker();
   private escalations = 0;
+  private taskText = ""; // what you asked, saved with each run
   private spent = 0;
   private closed = false;
 
@@ -48,6 +49,7 @@ export class TaskController {
   // A normal message: build it straight away.
   async send(text: string): Promise<void> {
     this.startTask("building");
+    this.taskText = text;
     await this.useBuilder();
     this.session.inputQueue.push(text);
   }
@@ -55,6 +57,7 @@ export class TaskController {
   // /plan [model] <task>: the planner thinks in read-only plan mode first.
   async plan(task: string, planner: ModelId): Promise<void> {
     this.startTask("planning");
+    this.taskText = `/plan ${task}`;
     this.planner = planner;
     this.session.planning = true;
     await this.switchModel(planner);
@@ -78,7 +81,12 @@ export class TaskController {
 
     const checks = await finishRun(
       summary,
-      { mode: this.phase === "planning" ? "plan" : this.session.mode, model: this.session.model },
+      {
+        mode: this.phase === "planning" ? "plan" : this.session.mode,
+        model: this.session.model,
+        task: this.taskText,
+        attempt: this.escalations,
+      },
       this.hooks.print
     );
     this.spent += summary.costUsd;

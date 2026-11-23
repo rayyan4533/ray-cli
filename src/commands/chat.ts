@@ -1,4 +1,4 @@
-import { input, select } from "@inquirer/prompts";
+import { confirm, input, select } from "@inquirer/prompts";
 import { createSession, type AgentSession } from "../agent/create-session.js";
 import { handleMessage } from "../agent/message-handler.js";
 import {
@@ -25,6 +25,9 @@ import { formatChecks, gitChangedFiles, runChecks } from "../quality/checks.js";
 import { TaskController, applyModelChoice } from "../agent/task-controller.js";
 import { parsePlanCommand } from "../agent/routing.js";
 import { APPROVAL_CHOICES, type ApprovalLevel } from "../agent/permissions.js";
+import { parseRate, rateLastRun, rateUsage } from "../quality/rating.js";
+import { statsReport } from "../quality/stats.js";
+import { suggestRules } from "../quality/improve.js";
 
 export type ChatOptions = {
   mode?: CliMode;
@@ -37,6 +40,10 @@ export type ChatOptions = {
 export type SlashResult = "not-slash" | "handled" | "exit";
 
 type Print = (line: string) => void;
+// Ask the user a yes/no question (inquirer in chat, the y/n bar in the UI).
+export type AskYesNo = (question: string) => Promise<boolean>;
+
+const askInTerminal: AskYesNo = (question) => confirm({ message: question, default: true });
 
 function printSlashHelp(print: Print): void {
   print(fmt.label("\nSlash commands:"));
@@ -49,7 +56,8 @@ function printSlashHelp(print: Print): void {
 export async function handleSlashCommand(
   line: string,
   session: AgentSession,
-  print: Print = console.log
+  print: Print = console.log,
+  askYesNo: AskYesNo = askInTerminal
 ): Promise<SlashResult> {
   if (!line.startsWith("/")) return "not-slash";
   const [command, ...rest] = line.split(/\s+/);
@@ -139,6 +147,44 @@ export async function handleSlashCommand(
       const files = await gitChangedFiles();
       print(fmt.dim(`Running checks (${files.length} changed file(s) in git)…`));
       for (const line of formatChecks(await runChecks(files))) print(line);
+      return "handled";
+    }
+
+    case "/rate": {
+      const parsed = parseRate(rest);
+      if (!parsed) {
+        for (const l of rateUsage()) print(l);
+        return "handled";
+      }
+      print(rateLastRun(parsed.score, parsed.reason, parsed.note));
+      return "handled";
+    }
+
+    case "/stats": {
+      for (const l of statsReport(rest.includes("--all"))) print(l);
+      return "handled";
+    }
+
+    case "/improve": {
+      print(fmt.dim("Reading your 👎 runs and asking claude-sonnet-5-5 for rules…"));
+      const { rules, costUsd, looked } = await suggestRules();
+      if (looked === 0) {
+        print(fmt.dim("No 👎 runs in this project yet. Rate some runs first (🙂 or /rate bad …)."));
+        return "handled";
+      }
+      print(fmt.dim(`Looked at ${looked} 👎 run(s) · $${costUsd.toFixed(3)}`));
+      if (rules.length === 0) {
+        print(fmt.dim("No rule is clearly supported by those runs yet."));
+        return "handled";
+      }
+      let added = 0;
+      for (const rule of rules) {
+        if (await askYesNo(`Add to RAY.md: "${rule}"?`)) {
+          addMemory(rule, "project");
+          added++;
+        }
+      }
+      print(fmt.mode(`Added ${added} rule(s) to RAY.md · used from the next session`));
       return "handled";
     }
 

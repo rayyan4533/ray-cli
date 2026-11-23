@@ -31,7 +31,7 @@ function firstLine(text: string): string {
   return truncate(line, 120);
 }
 
-function readScripts(cwd: string): Record<string, string> {
+export function readScripts(cwd: string): Record<string, string> {
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
     return pkg.scripts ?? {};

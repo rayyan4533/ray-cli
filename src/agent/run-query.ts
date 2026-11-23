@@ -25,6 +25,7 @@ export async function runQuery(prompt: string, options: RunQueryOptions = {}): P
   let resume: string | undefined;
   let escalations = 0;
   let spent = 0;
+  const task = prompt; // the original question, saved with every attempt
 
   try {
     while (true) {
@@ -35,7 +36,7 @@ export async function runQuery(prompt: string, options: RunQueryOptions = {}): P
         handleMessage(message, { verbose, model });
         const summary = tracker.observe(message);
         if (summary) {
-          const checks = await finishRun(summary, { mode, model }, console.log);
+          const checks = await finishRun(summary, { mode, model, task, attempt: escalations }, console.log);
           spent += summary.costUsd;
           resume = summary.sessionId;
 

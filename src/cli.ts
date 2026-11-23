@@ -11,6 +11,7 @@ import { DEFAULT_CHOICE, MODEL_CHOICES, findModel, parseModelChoice, type ModelC
 import { wakeUp } from "./commands/wake-up.js";
 import { startUi } from "./commands/ui.js";
 import { showRuns } from "./quality/report.js";
+import { statsReport } from "./quality/stats.js";
 
 function parseMode(value: string): CliMode {
   const mode = parseCliMode(value);
@@ -135,6 +136,15 @@ export function createCli() {
     .option("-a, --all", "All projects, not just this one", false)
     .action((opts: { limit: string; all: boolean }) => {
       showRuns(Number(opts.limit), opts.all);
+    });
+
+  program
+    .command("stats")
+    .description("Runs, checks, cost and ratings per model")
+    .option("-a, --all", "All projects, not just this one", false)
+    .option("-d, --days <n>", "How many days back", "30")
+    .action((opts: { all: boolean; days: string }) => {
+      for (const line of statsReport(opts.all, Number(opts.days))) console.log(line);
     });
 
   program
