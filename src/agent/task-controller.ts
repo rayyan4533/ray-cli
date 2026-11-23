@@ -14,6 +14,11 @@ import { OPTIMIZED, choiceLabel, type ModelChoice, type ModelId } from "../confi
 import { RunTracker } from "../quality/signals.js";
 import { finishRun } from "../quality/report.js";
 import { fmt } from "../ui/format.js";
+import { loadSkills, withSkill, type Skill } from "../skills/skills.js";
+import { chooseSkill } from "../skills/classify.js";
+
+// "/skill bugfix …" forces a skill, "/skill off …" sends without one.
+export type SkillOverride = string | "off" | undefined;
 
 type Hooks = {
   print: (line: string) => void;
@@ -36,6 +41,7 @@ export class TaskController {
   private tracker = new RunTracker();
   private escalations = 0;
   private taskText = ""; // what you asked, saved with each run
+  private skill: Skill | null = null; // the playbook used for this task
   private spent = 0;
   private closed = false;
 
@@ -47,17 +53,39 @@ export class TaskController {
   }
 
   // A normal message: build it straight away.
-  async send(text: string): Promise<void> {
+  async send(text: string, override?: SkillOverride): Promise<void> {
     this.startTask("building");
     this.taskText = text;
+    this.skill = await this.pickSkill(text, override);
     await this.useBuilder();
-    this.session.inputQueue.push(text);
+    this.session.inputQueue.push(this.skill ? withSkill(text, this.skill) : text);
+  }
+
+  // Which playbook fits this task? Your override wins; otherwise keywords, then Haiku.
+  private async pickSkill(text: string, override: SkillOverride): Promise<Skill | null> {
+    if (override === "off") {
+      this.hooks.print(fmt.dim("🧭 no skill (you turned it off)"));
+      return null;
+    }
+    const skills = loadSkills();
+    if (override) {
+      const forced = skills.get(override) ?? null;
+      this.hooks.print(forced ? fmt.mode(`🧭 skill: ${forced.name} (you chose it)`) : fmt.error(`No skill named "${override}".`));
+      return forced;
+    }
+    const pick = await chooseSkill(text, [...skills.values()]);
+    this.spent += pick.costUsd;
+    this.hooks.print(
+      pick.skill ? fmt.mode(`🧭 skill: ${pick.skill.name} (${pick.why})`) : fmt.dim(`🧭 no skill (${pick.why})`)
+    );
+    return pick.skill;
   }
 
   // /plan [model] <task>: the planner thinks in read-only plan mode first.
   async plan(task: string, planner: ModelId): Promise<void> {
     this.startTask("planning");
     this.taskText = `/plan ${task}`;
+    this.skill = await this.pickSkill(task, undefined);
     this.planner = planner;
     this.session.planning = true;
     await this.switchModel(planner);
@@ -86,6 +114,7 @@ export class TaskController {
         model: this.session.model,
         task: this.taskText,
         attempt: this.escalations,
+        skill: this.skill?.name ?? null,
       },
       this.hooks.print
     );
@@ -150,7 +179,7 @@ export class TaskController {
     this.phase = "building";
     await this.useBuilder();
     this.hooks.print(fmt.mode(`Building with ${this.session.model}…`));
-    this.session.inputQueue.push(BUILD_PROMPT);
+    this.session.inputQueue.push(this.skill ? withSkill(BUILD_PROMPT, this.skill) : BUILD_PROMPT);
     return false;
   }
 

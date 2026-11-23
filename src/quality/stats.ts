@@ -1,4 +1,4 @@
-import { reasonCounts, statsByModel, type ModelStats, type ReasonCount } from "./db.js";
+import { reasonCounts, statsByModel, statsBySkill, type ModelStats, type ReasonCount } from "./db.js";
 import { readScripts } from "./checks.js";
 import { fmt } from "../ui/format.js";
 
@@ -57,6 +57,16 @@ export function statsReport(allProjects = false, days = 30): string[] {
         `${`$${m.avg_cost.toFixed(3)}`.padStart(8)}  ${`$${m.total_cost.toFixed(2)}`.padStart(6)}  ` +
         `${String(m.called_in || "–").padStart(9)}  ${m.good} / ${m.bad}`
     );
+  }
+
+  const skills = statsBySkill(allProjects, days);
+  if (skills.some((s) => s.skill !== "none")) {
+    lines.push(fmt.dim("\n  skill               runs  checks ✓  👍 / 👎"));
+    for (const s of skills) {
+      lines.push(
+        `  ${s.skill.padEnd(18)} ${String(s.runs).padStart(5)}  ${pct(s.passed, s.checked).padStart(8)}  ${s.good} / ${s.bad}`
+      );
+    }
   }
 
   const bad = reasons.filter((r) => r.score === "bad");

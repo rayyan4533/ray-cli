@@ -22,6 +22,7 @@ import { fitRows } from "./fit-rows.js";
 import { OTHER, REASONS, rateLastRun } from "../../quality/rating.js";
 import type { Score } from "../../quality/db.js";
 import { getLastRunId } from "../../quality/report.js";
+import { parseSkillCommand, skillListLines } from "../../skills/skills.js";
 
 // A yes/no question waiting at the bottom: a tool approval or "approve this plan?".
 type Approval = {
@@ -431,6 +432,14 @@ export function App({ mode, model, resume }: AppProps) {
 
     const controller = controllerRef.current;
     if (!controller) return;
+
+    if (line === "/skill" || line.startsWith("/skill ")) {
+      const parsed = parseSkillCommand(line);
+      if ("list" in parsed) return skillListLines().forEach((l) => print(l));
+      if ("error" in parsed) return print(fmt.error(parsed.error));
+      setBusy(true);
+      return void controller.send(parsed.task, parsed.override);
+    }
 
     if (line === "/plan" || line.startsWith("/plan ")) {
       const parsed = parsePlanCommand(line, findModel);

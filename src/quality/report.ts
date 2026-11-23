@@ -5,7 +5,7 @@ import { fmt } from "../ui/format.js";
 
 type Print = (line: string) => void;
 
-export type RunContext = { mode: string; model: string; task?: string; attempt?: number };
+export type RunContext = { mode: string; model: string; task?: string; attempt?: number; skill?: string | null };
 
 // The run you rate with 🙂 or /rate: the last one this ray-cli process saved.
 let lastRunId: number | null = null;
@@ -54,6 +54,7 @@ export async function finishRun(summary: RunSummary, context: RunContext, print:
       checksPassed: allPassed(checks),
       task: context.task ? context.task.replace(/\s+/g, " ").slice(0, 200) : null,
       attempt: context.attempt ?? 0,
+      skill: context.skill ?? null,
     });
   } catch (error) {
     print(fmt.dim(`(run not logged: ${error instanceof Error ? error.message : String(error)})`));

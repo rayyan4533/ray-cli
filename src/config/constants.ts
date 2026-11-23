@@ -13,6 +13,7 @@ export const SLASH_COMMANDS = [
   { command: "/rate good|bad [reason]", description: "Rate the last task (reason optional)" },
   { command: "/stats [--all]", description: "Runs, checks, cost and ratings per model" },
   { command: "/improve", description: "Suggest RAY.md rules from your 👎 runs (you approve each)" },
+  { command: "/skill [name|off] <task>", description: "List skills, or force one for this task" },
   { command: "/help", description: "Show slash commands" },
   { command: "/context", description: "Show context window usage" },
   { command: "/exit", description: "End the chat session" },

@@ -7,6 +7,8 @@ import { DEFAULT_CHOICE, OPTIMIZED, type ModelChoice, type ModelId } from "../co
 import { BUILDER, escalationReason, nextStep } from "./routing.js";
 import { RunTracker } from "../quality/signals.js";
 import { finishRun } from "../quality/report.js";
+import { loadSkills, withSkill } from "../skills/skills.js";
+import { chooseSkill } from "../skills/classify.js";
 
 export type RunQueryOptions = {
   mode?: CliMode;
@@ -26,6 +28,10 @@ export async function runQuery(prompt: string, options: RunQueryOptions = {}): P
   let escalations = 0;
   let spent = 0;
   const task = prompt; // the original question, saved with every attempt
+  const pick = await chooseSkill(prompt, [...loadSkills().values()]);
+  const skill = pick.skill?.name ?? null;
+  console.log(pick.skill ? fmt.mode(`🧭 skill: ${pick.skill.name} (${pick.why})`) : fmt.dim(`🧭 no skill (${pick.why})`));
+  if (pick.skill) prompt = withSkill(prompt, pick.skill);
 
   try {
     while (true) {
@@ -36,7 +42,7 @@ export async function runQuery(prompt: string, options: RunQueryOptions = {}): P
         handleMessage(message, { verbose, model });
         const summary = tracker.observe(message);
         if (summary) {
-          const checks = await finishRun(summary, { mode, model, task, attempt: escalations }, console.log);
+          const checks = await finishRun(summary, { mode, model, task, attempt: escalations, skill }, console.log);
           spent += summary.costUsd;
           resume = summary.sessionId;
 

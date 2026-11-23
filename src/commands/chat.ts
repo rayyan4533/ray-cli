@@ -28,6 +28,7 @@ import { APPROVAL_CHOICES, type ApprovalLevel } from "../agent/permissions.js";
 import { parseRate, rateLastRun, rateUsage } from "../quality/rating.js";
 import { statsReport } from "../quality/stats.js";
 import { suggestRules } from "../quality/improve.js";
+import { parseSkillCommand, skillListLines } from "../skills/skills.js";
 
 export type ChatOptions = {
   mode?: CliMode;
@@ -310,6 +311,22 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
       break; // Ctrl+C
     }
     if (!line) continue;
+
+    if (line === "/skill" || line.startsWith("/skill ")) {
+      const parsed = parseSkillCommand(line);
+      if ("list" in parsed) {
+        for (const l of skillListLines()) console.log(l);
+        continue;
+      }
+      if ("error" in parsed) {
+        console.log(fmt.error(parsed.error));
+        continue;
+      }
+      turnGate.begin();
+      startSpinner("Agent working…");
+      await controller.send(parsed.task, parsed.override);
+      continue;
+    }
 
     if (line === "/plan" || line.startsWith("/plan ")) {
       const parsed = parsePlanCommand(line, findModel);

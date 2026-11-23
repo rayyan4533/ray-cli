@@ -22,6 +22,7 @@ export type RunRecord = {
   checksPassed: boolean | null;
   task: string | null; // what you asked (first 200 characters), so failures can be understood later
   attempt: number; // 0 = first try, 1 = first escalation, 2 = second
+  skill: string | null; // the playbook used (Chapter 15), or null
 };
 
 export type RunRow = {
@@ -87,6 +88,7 @@ function migrate(database: DatabaseSync): void {
   const has = (name: string) => columns.some((c) => c.name === name);
   if (!has("task")) database.exec("ALTER TABLE runs ADD COLUMN task TEXT");
   if (!has("attempt")) database.exec("ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0");
+  if (!has("skill")) database.exec("ALTER TABLE runs ADD COLUMN skill TEXT");
 }
 
 const bool = (value: boolean | null) => (value === null ? null : value ? 1 : 0);
@@ -97,8 +99,8 @@ export function saveRun(run: RunRecord): number {
     .prepare(
       `INSERT INTO runs (project, project_name, session_id, model, mode, turns, cost_usd, outcome,
                          hit_max_turns, tool_errors, denials, files_changed, checks, checks_passed,
-                         task, attempt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                         task, attempt, skill)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       run.project,
@@ -116,7 +118,8 @@ export function saveRun(run: RunRecord): number {
       JSON.stringify(run.checks),
       bool(run.checksPassed),
       run.task,
-      run.attempt
+      run.attempt,
+      run.skill
     );
   return Number(result.lastInsertRowid);
 }
@@ -166,6 +169,27 @@ export function statsByModel(allProjects: boolean, days = 30, project = process.
        ORDER BY runs DESC`
     )
     .all(...params(allProjects, project, days)) as unknown as ModelStats[];
+}
+
+export type SkillStats = { skill: string; runs: number; checked: number; passed: number; good: number; bad: number };
+
+// Same idea as statsByModel, grouped by skill ("none" when no skill was used).
+export function statsBySkill(allProjects: boolean, days = 30, project = process.cwd()): SkillStats[] {
+  return open()
+    .prepare(
+      `SELECT COALESCE(r.skill, 'none')                     AS skill,
+              COUNT(*)                                        AS runs,
+              COUNT(r.checks_passed)                          AS checked,
+              COALESCE(SUM(r.checks_passed), 0)               AS passed,
+              SUM(CASE WHEN g.score = 'good' THEN 1 ELSE 0 END) AS good,
+              SUM(CASE WHEN g.score = 'bad'  THEN 1 ELSE 0 END) AS bad
+       FROM runs r
+       LEFT JOIN ratings g ON g.run_id = r.id
+       WHERE r.created_at >= datetime('now', ?) AND ${scope(allProjects)}
+       GROUP BY COALESCE(r.skill, 'none')
+       ORDER BY runs DESC`
+    )
+    .all(...params(allProjects, project, days)) as unknown as SkillStats[];
 }
 
 export type ReasonCount = { score: Score; reason: string; count: number; checks_ok: number };
