@@ -1,4 +1,4 @@
-import { input } from "@inquirer/prompts";
+import { input, select } from "@inquirer/prompts";
 import { createSession, type AgentSession } from "../agent/create-session.js";
 import { handleMessage } from "../agent/message-handler.js";
 import {
@@ -7,20 +7,28 @@ import {
   type CliMode,
 } from "../agent/modes.js";
 import { SLASH_COMMANDS } from "../config/constants.js";
-import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "../config/models.js";
+import {
+  DEFAULT_CHOICE,
+  MODEL_CHOICES,
+  choiceLabel,
+  findModel,
+  parseModelChoice,
+  type ModelChoice,
+} from "../config/models.js";
 import { fmt } from "../ui/format.js";
 import { startSpinner, stopSpinner } from "../ui/spinner.js";
 
 import { listProjectSessions, printSessions, renameProjectSession } from "../agent/sessions.js";
 import { contextDetails, contextSummary } from "../agent/context.js";
 import { MEMORY_FILES, addMemory, forgetMemory, listMemory } from "../agent/memory.js";
-import { RunTracker } from "../quality/signals.js";
 import { formatChecks, gitChangedFiles, runChecks } from "../quality/checks.js";
-import { finishRun } from "../quality/report.js";
+import { TaskController, applyModelChoice } from "../agent/task-controller.js";
+import { parsePlanCommand } from "../agent/routing.js";
+import { APPROVAL_CHOICES, type ApprovalLevel } from "../agent/permissions.js";
 
 export type ChatOptions = {
   mode?: CliMode;
-  model?: ModelId;
+  model?: ModelChoice;
   verbose?: boolean;
   resume?: string;
   continueLast?: boolean;
@@ -79,18 +87,18 @@ export async function handleSlashCommand(
 
     case "/model": {
       if (!arg) {
-        print(fmt.mode(`Current model: ${session.model}`));
-        print(fmt.dim(`Choices: ${MODEL_IDS.join(", ")}`));
+        print(fmt.mode(`Current model: ${choiceLabel(session.choice)} (running ${session.model})`));
+        print(fmt.dim(`Choices: ${MODEL_CHOICES.join(", ")}`));
         return "handled";
       }
-      const newModel = parseModelId(arg);
-      if (!newModel) {
-        print(fmt.error(`Unknown model "${arg}". Choices: ${MODEL_IDS.join(", ")}`));
+      const choice = parseModelChoice(arg) ?? findModel(arg);
+      if (!choice) {
+        print(fmt.error(`Unknown model "${arg}". Choices: ${MODEL_CHOICES.join(", ")}`));
         return "handled";
       }
-      await session.query.setModel(newModel);
-      session.model = newModel;
-      print(fmt.mode(`Model switched to ${newModel}`));
+      await applyModelChoice(session, choice);
+      print(fmt.mode(`Model set to ${choiceLabel(choice)}`));
+      if (choice !== "optimized") print(fmt.dim("  Escalation is off while you pick a model yourself."));
       return "handled";
     }
 
@@ -187,18 +195,31 @@ function createTurnGate() {
 export async function startChat(options: ChatOptions = {}): Promise<void> {
   const {
     mode: initialMode = "agent",
-    model = DEFAULT_MODEL,
+    model = DEFAULT_CHOICE,
     verbose = false,
     resume,
     continueLast = false,
   } = options;
   const session = createSession(initialMode, model, { resume, continueLast });
   const turnGate = createTurnGate();
-  const tracker = new RunTracker();
+  const controller = new TaskController(session, {
+    print: console.log,
+    choosePlanRun: () => {
+      stopSpinner();
+      return select<ApprovalLevel | null>({
+        message: "Approve this plan? How should ray build it?",
+        choices: [
+          ...APPROVAL_CHOICES.map((c) => ({ name: c.label, value: c.level })),
+          { name: "Don't build (discard the plan)", value: null },
+        ],
+        default: "edits",
+      });
+    },
+  });
   let ended = false;
 
   const resuming = resume ? ` · resuming ${resume.slice(0, 8)}` : continueLast ? " · continuing last" : "";
-  console.log(fmt.mode(`Chat started in ${initialMode} mode · ${model}${resuming}`));
+  console.log(fmt.mode(`Chat started in ${initialMode} mode · ${choiceLabel(model)}${resuming}`));
   printSlashHelp(console.log);
 
   const processing = (async () => {
@@ -208,11 +229,8 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
           session.id = message.session_id;
         }
         handleMessage(message, { verbose, model: session.model });
-        const summary = tracker.observe(message);
-        if (summary) {
-          await finishRun(summary, { mode: session.mode, model: session.model }, console.log);
-        }
-        if (message.type === "result") {
+        const taskDone = await controller.observe(message);
+        if (taskDone) {
           try {
             console.log(contextSummary(await session.query.getContextUsage()));
           } catch {
@@ -247,13 +265,25 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
     }
     if (!line) continue;
 
+    if (line === "/plan" || line.startsWith("/plan ")) {
+      const parsed = parsePlanCommand(line, findModel);
+      if ("error" in parsed) {
+        console.log(fmt.error(parsed.error));
+        continue;
+      }
+      turnGate.begin();
+      await controller.plan(parsed.task, parsed.planner);
+      startSpinner("Planning…");
+      continue;
+    }
+
     const slash = await handleSlashCommand(line, session);
     if (slash === "exit") break;
     if (slash === "handled") continue;
 
     turnGate.begin();
     startSpinner("Agent working…");
-    session.inputQueue.push(line);
+    await controller.send(line);
   }
 
   session.inputQueue.close();

@@ -1,31 +1,58 @@
-import { useEffect, useRef, useState } from "react";
-import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { Box, Text, measureElement, useApp, useInput, useWindowSize, type DOMElement } from "ink";
 import TextInput from "ink-text-input";
 import type { SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { createSession, type AgentSession } from "../../agent/create-session.js";
 import { formatMessage } from "../../agent/message-handler.js";
-import type { CliMode } from "../../agent/modes.js";
+import { cliModeToPermissionMode, type CliMode } from "../../agent/modes.js";
 import { listProjectSessions, loadHistory, renameProjectSession } from "../../agent/sessions.js";
-import type { ModelId } from "../../config/models.js";
+import { MODELS, MODEL_CHOICES, OPTIMIZED, choiceLabel, findModel, type ModelChoice } from "../../config/models.js";
+import { CLI_MODES, MODE_DESCRIPTIONS } from "../../config/constants.js";
 import { handleSlashCommand } from "../../commands/chat.js";
 import { fmt } from "../format.js";
 import { contextSummary } from "../../agent/context.js";
-import { RunTracker } from "../../quality/signals.js";
-import { finishRun } from "../../quality/report.js";
+import { TaskController, headerModel } from "../../agent/task-controller.js";
+import { parsePlanCommand } from "../../agent/routing.js";
+import { DROPDOWN_LIST_OFFSET, Dropdown, type DropdownItem } from "./Dropdown.js";
+import { APPROVAL_CHOICES, type ApprovalLevel } from "../../agent/permissions.js";
 import { PANEL_LIST_OFFSET, PANEL_WIDTH, SessionsPanel, panelWindow } from "./SessionsPanel.js";
 import { useMouse } from "./use-mouse.js";
+import { AVATAR_ROWS, Avatar } from "./Avatar.js";
+import { fitRows } from "./fit-rows.js";
 
+// A yes/no question waiting at the bottom: a tool approval or "approve this plan?".
 type Approval = {
-  toolName: string;
-  preview: string;
+  question: string;
+  yes: string; // printed after y
+  no: string; // printed after n
   resolve: (approved: boolean) => void;
 };
 
-type Status = { mode: CliMode; model: ModelId; id: string | null };
+// After a plan: pick 1-3 for how to build, or 4 / n to discard.
+type PlanChoice = { resolve: (level: ApprovalLevel | null) => void };
+
+// The two header dropdowns.
+type MenuKind = "mode" | "model";
+
+const MODE_ITEMS: DropdownItem<CliMode>[] = CLI_MODES.map((m) => ({
+  value: m,
+  label: m,
+  note: MODE_DESCRIPTIONS[m],
+}));
+
+const MODEL_ITEMS: DropdownItem<ModelChoice>[] = MODEL_CHOICES.map((c) => ({
+  value: c,
+  label: choiceLabel(c),
+  note: c === OPTIMIZED ? "Haiku first, stronger only when checks fail" : (MODELS.find((m) => m.id === c)?.note ?? ""),
+}));
+
+const MENU_WIDTH: Record<MenuKind, number> = { mode: 60, model: 72 };
+
+type Status = { mode: CliMode; model: string; id: string | null };
 
 export type AppProps = {
   mode: CliMode;
-  model: ModelId;
+  model: ModelChoice;
   resume?: string;
 };
 
@@ -37,7 +64,14 @@ export function App({ mode, model, resume }: AppProps) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [approval, setApproval] = useState<Approval | null>(null);
-  const [status, setStatus] = useState<Status>({ mode, model, id: resume ?? null });
+  const [planChoice, setPlanChoice] = useState<PlanChoice | null>(null);
+  // How many lines up from the newest you have scrolled (0 = following the newest).
+  const [scroll, setScroll] = useState(0);
+  const maxScrollRef = useRef(0);
+  const [status, setStatus] = useState<Status>({ mode, model: "", id: resume ?? null });
+  const [menu, setMenu] = useState<MenuKind | null>(null); // which dropdown is open
+  const [menuIndex, setMenuIndex] = useState(0);
+  const [menuLeft, setMenuLeft] = useState(0); // column where the open dropdown starts
   const [panelOpen, setPanelOpen] = useState(false);
   const [sessions, setSessions] = useState<SDKSessionInfo[]>([]);
   const [panelIndex, setPanelIndex] = useState(0);
@@ -47,33 +81,55 @@ export function App({ mode, model, resume }: AppProps) {
   const [resumeId, setResumeId] = useState<string | undefined>(resume);
 
   const sessionRef = useRef<AgentSession | null>(null);
-  // Mode and model carry over when you switch sessions.
-  const settingsRef = useRef({ mode, model });
+  const controllerRef = useRef<TaskController | null>(null);
+  // Header pieces you can click; measured when a click arrives.
+  const modeLabelRef = useRef<DOMElement>(null);
+  const modelLabelRef = useRef<DOMElement>(null);
+  const sessionsLabelRef = useRef<DOMElement>(null);
+  // Mode and model choice carry over when you switch sessions.
+  const settingsRef = useRef({ mode, choice: model });
 
   const print = (line: string) => setLines((prev) => [...prev, line]);
 
   const syncStatus = (session: AgentSession) => {
-    settingsRef.current = { mode: session.mode, model: session.model };
-    setStatus({ mode: session.mode, model: session.model, id: session.id });
+    settingsRef.current = { mode: session.mode, choice: session.choice };
+    setStatus({
+      mode: session.mode,
+      model: headerModel(session, controllerRef.current),
+      id: session.id,
+    });
   };
+
+  const ask = (question: string, yes: string, no: string) =>
+    new Promise<boolean>((resolve) => setApproval({ question, yes, no, resolve }));
 
   // One agent session per resumeId. Runs again whenever resumeId changes.
   useEffect(() => {
     let cancelled = false;
-    const { mode, model } = settingsRef.current;
+    const { mode, choice } = settingsRef.current;
 
     setLines([]);
+    setScroll(0);
     setBusy(false);
     setContextLine(null);
 
-    const session = createSession(mode, model, {
+    const session = createSession(mode, choice, {
       resume: resumeId,
       ask: (toolName, preview) =>
-        new Promise<boolean>((resolve) => setApproval({ toolName, preview, resolve })),
+        ask(
+          `Allow ${toolName}? ${fmt.dim(preview.replace(/\s+/g, " ").slice(0, 60))}`,
+          `  Allowed ${toolName}`,
+          `  Denied ${toolName}`
+        ),
+    });
+    const controller = new TaskController(session, {
+      print: (line) => !cancelled && print(line),
+      choosePlanRun: () => new Promise((resolve) => setPlanChoice({ resolve })),
+      onChange: () => !cancelled && syncStatus(session),
     });
     sessionRef.current = session;
+    controllerRef.current = controller;
     syncStatus(session);
-    const tracker = new RunTracker();
 
     if (resumeId) {
       loadHistory(resumeId)
@@ -94,13 +150,8 @@ export function App({ mode, model, resume }: AppProps) {
             syncStatus(session);
           }
           for (const line of formatMessage(message, { model: session.model })) print(line);
-          const summary = tracker.observe(message);
-          if (summary) {
-            await finishRun(summary, { mode: session.mode, model: session.model }, (line) => {
-              if (!cancelled) print(line);
-            });
-          }
-          if (message.type === "result") {
+          const taskDone = await controller.observe(message);
+          if (taskDone && !cancelled) {
             setBusy(false);
             session.query
               .getContextUsage()
@@ -119,9 +170,14 @@ export function App({ mode, model, resume }: AppProps) {
 
     return () => {
       cancelled = true;
+      controller.close();
       // A tool approval from the old session must not hang forever.
       setApproval((pending) => {
         pending?.resolve(false);
+        return null;
+      });
+      setPlanChoice((pending) => {
+        pending?.resolve(null);
         return null;
       });
       session.inputQueue.close();
@@ -160,9 +216,31 @@ export function App({ mode, model, resume }: AppProps) {
   // Tab opens and closes the sessions panel.
   useInput(
     (_input, key) => {
-      if (key.tab) togglePanel();
+      if (key.tab && !menu) togglePanel();
+      if (key.pageUp) scrollBy(Math.max(middleRows - 2, 1));
+      if (key.pageDown) scrollBy(-Math.max(middleRows - 2, 1));
     },
-    { isActive: approval === null }
+    { isActive: approval === null && planChoice === null }
+  );
+
+  // 1 / 2 / 3 picks how to build the plan; 4 or n discards it.
+  useInput(
+    (input) => {
+      if (!planChoice) return;
+      const index = Number(input) - 1;
+      const picked = APPROVAL_CHOICES[index];
+      if (picked) {
+        print(fmt.success(`  Plan approved · ${picked.label}`));
+        planChoice.resolve(picked.level);
+      } else if (input === "4" || input === "n") {
+        print(fmt.error("  Plan rejected"));
+        planChoice.resolve(null);
+      } else {
+        return;
+      }
+      setPlanChoice(null);
+    },
+    { isActive: planChoice !== null }
   );
 
   // y / n answers a tool approval. Only active while one is waiting.
@@ -170,34 +248,106 @@ export function App({ mode, model, resume }: AppProps) {
     (input) => {
       if (!approval || (input !== "y" && input !== "n")) return;
       const approved = input === "y";
-      print(approved ? fmt.success(`  Allowed ${approval.toolName}`) : fmt.error(`  Denied ${approval.toolName}`));
+      print(approved ? fmt.success(approval.yes) : fmt.error(approval.no));
       approval.resolve(approved);
       setApproval(null);
     },
     { isActive: approval !== null }
   );
 
-  // Header (3 rows) + input box (3 rows) take 6 rows; the middle gets the rest.
-  const HEADER_ROWS = 3;
-  const middleRows = Math.max(rows - 6, 4);
+  // Header (as tall as the avatar, no border) + bottom box take their rows; the middle gets the rest.
+  // The bottom is the input (3 rows) or the plan choice (border 2 + 5 lines = 7).
+  const HEADER_ROWS = AVATAR_ROWS;
+  const bottomRows = planChoice ? 7 : 3;
+  const middleRows = Math.max(rows - HEADER_ROWS - bottomRows, 4);
+
+  function scrollBy(amount: number) {
+    setScroll((s) => Math.min(Math.max(s + amount, 0), maxScrollRef.current));
+  }
 
   function togglePanel() {
+    setMenu(null);
     if (panelOpen) setPanelOpen(false);
     else void openPanel();
+  }
+
+  // Open a header dropdown right under its label (or close it if it is already open).
+  function toggleMenu(kind: MenuKind) {
+    if (menu === kind) return setMenu(null);
+    if (busy) return print(fmt.error(`Wait for the agent to finish before changing the ${kind}.`));
+    const session = sessionRef.current;
+    if (!session) return;
+    setPanelOpen(false);
+    const label = kind === "mode" ? modeLabelRef.current : modelLabelRef.current;
+    const x = label ? measureElement(label).x : 0;
+    setMenuLeft(Math.max(0, Math.min(x, columns - MENU_WIDTH[kind])));
+    setMenuIndex(
+      kind === "mode"
+        ? Math.max(CLI_MODES.indexOf(session.mode), 0)
+        : Math.max(MODEL_CHOICES.indexOf(session.choice), 0)
+    );
+    setMenu(kind);
+  }
+
+  // Same as typing /mode: change the SDK permission mode and remember it.
+  async function pickMode(mode: CliMode) {
+    setMenu(null);
+    const session = sessionRef.current;
+    if (!session || session.mode === mode) return;
+    await session.query.setPermissionMode(cliModeToPermissionMode(mode));
+    session.mode = mode;
+    syncStatus(session);
+    print(fmt.mode(`Mode switched to ${mode} · ${MODE_DESCRIPTIONS[mode]}`));
+  }
+
+  async function pickModel(choice: ModelChoice) {
+    setMenu(null);
+    await controllerRef.current?.setChoice(choice);
+    print(fmt.mode(`Model set to ${choice === "optimized" ? "⚡ optimized" : choice}`));
+    if (choice !== "optimized") print(fmt.dim("  Escalation is off while you pick a model yourself."));
+  }
+
+  // Is the click inside this header piece? Measured live, so it works at any width.
+  function hit(ref: RefObject<DOMElement | null>, x: number, y: number): boolean {
+    if (!ref.current) return false;
+    const box = measureElement(ref.current);
+    return x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height;
   }
 
   // Mouse: click the header's right side to toggle the panel;
   // inside the panel, click a row to select it, click it again to resume; wheel moves.
   useMouse((event) => {
-    if (approval) return;
+    if (approval || planChoice) return;
 
     if (event.y < HEADER_ROWS) {
-      if (event.button === "left" && event.x >= columns / 2) togglePanel();
+      if (event.button !== "left") return;
+      if (hit(modeLabelRef, event.x, event.y)) return toggleMenu("mode");
+      if (hit(modelLabelRef, event.x, event.y)) return toggleMenu("model");
+      if (hit(sessionsLabelRef, event.x, event.y)) togglePanel();
       return;
     }
 
+    if (menu) {
+      if (event.button !== "left") return;
+      const count = menu === "mode" ? MODE_ITEMS.length : MODEL_ITEMS.length;
+      const row = event.y - HEADER_ROWS - DROPDOWN_LIST_OFFSET;
+      const inside = event.x >= menuLeft && event.x < menuLeft + MENU_WIDTH[menu];
+      if (!inside || row < 0 || row >= count) return setMenu(null); // click outside closes it
+      if (row !== menuIndex) return setMenuIndex(row);
+      if (menu === "mode") void pickMode(MODE_ITEMS[row]!.value);
+      else void pickModel(MODEL_ITEMS[row]!.value);
+      return;
+    }
+
+    // The wheel over the conversation scrolls it; over the panel it moves the highlight.
     const panelLeft = columns - PANEL_WIDTH;
-    if (!panelOpen || renameDraft !== null || event.x < panelLeft) return;
+    const overPanel = panelOpen && event.x >= panelLeft;
+    if (!overPanel) {
+      if (event.button === "wheel-up") scrollBy(3);
+      else if (event.button === "wheel-down") scrollBy(-3);
+      return;
+    }
+    if (renameDraft !== null) return;
 
     if (event.button === "wheel-up") return setPanelIndex((i) => Math.max(i - 1, 0));
     if (event.button === "wheel-down") return setPanelIndex((i) => Math.min(i + 1, sessions.length - 1));
@@ -215,42 +365,106 @@ export function App({ mode, model, resume }: AppProps) {
   async function submit(value: string) {
     const line = value.trim();
     setDraft("");
+    setScroll(0); // jump back to the newest lines
     const session = sessionRef.current;
     if (!line || busy || !session) return;
 
     if (line === "/sessions") return void openPanel();
+    if (line === "/model") return toggleMenu("model");
+    if (line === "/mode") return toggleMenu("mode");
 
     print(fmt.label(`You: ${line}`));
+
+    const controller = controllerRef.current;
+    if (!controller) return;
+
+    if (line === "/plan" || line.startsWith("/plan ")) {
+      const parsed = parsePlanCommand(line, findModel);
+      if ("error" in parsed) return print(fmt.error(parsed.error));
+      setBusy(true);
+      return void controller.plan(parsed.task, parsed.planner);
+    }
 
     const result = await handleSlashCommand(line, session, print);
     if (result === "exit") return exit();
     if (result === "handled") return syncStatus(session);
 
     setBusy(true);
-    session.inputQueue.push(line);
+    await controller.send(line);
   }
 
-  const visible = lines.slice(-middleRows);
+  // Text area width: screen minus padding (2), minus the sessions panel when it is open.
+  const textWidth = columns - 2 - (panelOpen ? PANEL_WIDTH : 0);
+  // While scrolled up, one row shows how much is hidden below.
+  const fitted = fitRows(lines, scroll > 0 ? middleRows - 1 : middleRows, textWidth, scroll);
+  maxScrollRef.current = fitted.maxScroll;
   const shortId = status.id ? status.id.slice(0, 8) : "new";
 
   return (
     <Box flexDirection="column" height={rows}>
-      <Box borderStyle="round" borderColor="cyan" paddingX={1} justifyContent="space-between">
-        <Text bold color="cyan">
-          ray-cli
-        </Text>
-        <Text dimColor>
-          {contextLine ? `${contextLine} · ` : ""}
-          {status.mode} · {status.model} · {shortId} · {panelOpen ? "✕ close" : "☰ sessions"}
-        </Text>
+      {/* Header: avatar on the left; "ray" and the labels share one line, level with the eyes. */}
+      <Box height={HEADER_ROWS} paddingX={1}>
+        <Avatar />
+        <Box flexGrow={1} paddingTop={1} paddingLeft={2} justifyContent="space-between">
+          <Text bold color="cyan">
+            ray
+          </Text>
+          <Box>
+            <Text dimColor>{contextLine ? `${contextLine} · ` : ""}</Text>
+            <Box ref={modeLabelRef}>
+              <Text color="green">{status.mode} ▾</Text>
+            </Box>
+            <Text dimColor> · </Text>
+            <Box ref={modelLabelRef}>
+              <Text color={status.model.includes("planning") ? "magenta" : "yellow"}>
+                {status.model} {status.model.includes("planning") ? "" : "▾"}
+              </Text>
+            </Box>
+            <Text dimColor> · {shortId} · </Text>
+            <Box ref={sessionsLabelRef}>
+              <Text dimColor>{panelOpen ? "✕ close" : "☰ sessions"}</Text>
+            </Box>
+          </Box>
+        </Box>
       </Box>
 
       <Box height={middleRows}>
         <Box flexDirection="column" flexGrow={1} paddingX={1} overflow="hidden">
-          {visible.map((line, i) => (
+          {fitted.lines.map((line, i) => (
             <Text key={i}>{line}</Text>
           ))}
+          {fitted.newerBelow > 0 && (
+            <Text color="cyan">↓ {fitted.newerBelow} newer line(s) · scroll down or PageDown</Text>
+          )}
         </Box>
+        {menu === "mode" && (
+          <Box position="absolute" top={0} left={menuLeft}>
+            <Dropdown
+              title="Mode"
+              items={MODE_ITEMS}
+              current={sessionRef.current?.mode ?? mode}
+              width={MENU_WIDTH.mode}
+              index={menuIndex}
+              setIndex={setMenuIndex}
+              onPick={(m) => void pickMode(m)}
+              onClose={() => setMenu(null)}
+            />
+          </Box>
+        )}
+        {menu === "model" && (
+          <Box position="absolute" top={0} left={menuLeft}>
+            <Dropdown
+              title="Model"
+              items={MODEL_ITEMS}
+              current={sessionRef.current?.choice ?? model}
+              width={MENU_WIDTH.model}
+              index={menuIndex}
+              setIndex={setMenuIndex}
+              onPick={(c) => void pickModel(c)}
+              onClose={() => setMenu(null)}
+            />
+          </Box>
+        )}
         {panelOpen && (
           <SessionsPanel
             sessions={sessions}
@@ -267,10 +481,22 @@ export function App({ mode, model, resume }: AppProps) {
         )}
       </Box>
 
-      {approval ? (
+      {planChoice ? (
+        <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
+          <Text color="yellow">Approve this plan? How should ray build it?</Text>
+          {APPROVAL_CHOICES.map((c, i) => (
+            <Text key={c.level}>
+              {"  "}
+              {i + 1}. {c.label}
+              {c.level === "all" ? fmt.dim("  (commands run without asking)") : ""}
+            </Text>
+          ))}
+          <Text>{"  "}4. Don't build (discard the plan)</Text>
+        </Box>
+      ) : approval ? (
         <Box borderStyle="round" borderColor="yellow" paddingX={1}>
           <Text color="yellow">
-            Allow {approval.toolName}? {fmt.dim(approval.preview.replace(/\s+/g, " ").slice(0, 60))} (y/n)
+            {approval.question} (y/n)
           </Text>
         </Box>
       ) : (
@@ -280,8 +506,8 @@ export function App({ mode, model, resume }: AppProps) {
             value={draft}
             onChange={setDraft}
             onSubmit={submit}
-            focus={!panelOpen}
-            placeholder={busy ? "Agent working…" : "Message, /help, or Tab for sessions"}
+            focus={!panelOpen && !menu}
+            placeholder={busy ? "Agent working…" : "Message, /plan <task>, /help, or Tab for sessions"}
           />
         </Box>
       )}

@@ -2,7 +2,8 @@ import type { CliMode } from "../agent/modes.js";
 
 export const SLASH_COMMANDS = [
   { command: "/mode agent|ask|plan", description: "Switch permission mode mid-session" },
-  { command: "/model [id]", description: "Show or switch the model mid-session" },
+  { command: "/model [optimized|id]", description: "Show or switch the model (optimized = auto)" },
+  { command: "/plan [model] <task>", description: "Plan first (Opus by default), approve, then build" },
   { command: "/sessions", description: "List past sessions in this folder" },
   { command: "/rename <title>", description: "Rename the current session" },
   { command: "/remember [personal] <text>", description: "Save a memory (project, or personal)" },

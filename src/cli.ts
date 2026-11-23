@@ -7,7 +7,7 @@ import { runQuery } from "./agent/run-query.js";
 import { parseCliMode, type CliMode } from "./agent/modes.js";
 import { startChat } from "./commands/chat.js";
 import { findSession, listProjectSessions, printSessions } from "./agent/sessions.js";
-import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "./config/models.js";
+import { DEFAULT_CHOICE, MODEL_CHOICES, findModel, parseModelChoice, type ModelChoice } from "./config/models.js";
 import { wakeUp } from "./commands/wake-up.js";
 import { startUi } from "./commands/ui.js";
 import { showRuns } from "./quality/report.js";
@@ -20,18 +20,18 @@ function parseMode(value: string): CliMode {
   return mode;
 }
 
-function parseModel(value: string): ModelId {
-  const model = parseModelId(value);
-  if (!model) {
-    throw new Error(`Invalid model "${value}". Use ${MODEL_IDS.join(", ")}.`);
+function parseModel(value: string): ModelChoice {
+  const choice = parseModelChoice(value) ?? findModel(value);
+  if (!choice) {
+    throw new Error(`Invalid model "${value}". Use ${MODEL_CHOICES.join(", ")}.`);
   }
-  return model;
+  return choice;
 }
 
 
 export function createCli() {
   const program = new Command()
-    .name("ray-cli")
+    .name("ray")
     .description("Learn the Claude Agent SDK through a Cursor-like CLI")
     .version("0.1.0");
 
@@ -55,7 +55,7 @@ export function createCli() {
     .description("Send one prompt to the agent")
     .argument("<prompt>", "The prompt to send to the agent")
     .option("-m, --mode <mode>", "agent | ask | plan", "agent")
-    .option("--model <id>", MODEL_IDS.join(" | "), DEFAULT_MODEL)
+    .option("--model <id>", MODEL_CHOICES.join(" | "), DEFAULT_CHOICE)
     .option("-v, --verbose", "Show full raw messages", false)
     .action(async (prompt: string, opts: { mode: string; model: string; verbose: boolean }) => {
       requireApiKey();
@@ -88,7 +88,7 @@ export function createCli() {
     .command("chat")
     .description("Interactive chat session")
     .option("-m, --mode <mode>", "agent | ask | plan", "agent")
-    .option("--model <id>", MODEL_IDS.join(" | "), DEFAULT_MODEL)
+    .option("--model <id>", MODEL_CHOICES.join(" | "), DEFAULT_CHOICE)
     .option("-v, --verbose", "Show message types", false)
     .option("-r, --resume <id>", "Resume a session by id (first 8 characters are enough)")
     .option("-c, --continue", "Continue the most recent session in this folder", false)
@@ -115,7 +115,7 @@ export function createCli() {
     .command("ui")
     .description("Full-screen chat")
     .option("-m, --mode <mode>", "agent | ask | plan", "agent")
-    .option("--model <id>", MODEL_IDS.join(" | "), DEFAULT_MODEL)
+    .option("--model <id>", MODEL_CHOICES.join(" | "), DEFAULT_CHOICE)
     .option("-r, --resume <id>", "Resume a session by id")
     .action(async (opts: { mode: string; model: string; resume?: string }) => {
       requireApiKey();

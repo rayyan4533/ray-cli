@@ -18,7 +18,7 @@ function signalsLine(summary: RunSummary): string | null {
 
 // After every turn: run checks if files changed, print what we found, log it.
 // Never throws: a broken check or log must not break the chat.
-export async function finishRun(summary: RunSummary, context: RunContext, print: Print): Promise<void> {
+export async function finishRun(summary: RunSummary, context: RunContext, print: Print): Promise<CheckResult[]> {
   let checks: CheckResult[] = [];
   try {
     if (summary.changedFiles.length > 0) {
@@ -52,6 +52,7 @@ export async function finishRun(summary: RunSummary, context: RunContext, print:
   } catch (error) {
     print(fmt.dim(`(run not logged: ${error instanceof Error ? error.message : String(error)})`));
   }
+  return checks;
 }
 
 const CHECK_ICON = (passed: number | null) => (passed === null ? fmt.dim("–") : passed ? fmt.success("✓") : fmt.error("✗"));

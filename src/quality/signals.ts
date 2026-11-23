@@ -26,6 +26,9 @@ function blocks(content: unknown): Block[] {
 export class RunTracker {
   private changedFiles = new Set<string>();
   private toolErrors = 0;
+  // In a chat the SDK reports the session's running total; we keep the last one
+  // so each summary holds only this turn's cost.
+  private lastTotalCost = 0;
 
   observe(message: SDKMessage): RunSummary | null {
     if (message.type === "assistant") {
@@ -48,7 +51,10 @@ export class RunTracker {
     const summary: RunSummary = {
       sessionId: message.session_id,
       turns: message.num_turns,
-      costUsd: message.total_cost_usd,
+      costUsd:
+        message.total_cost_usd >= this.lastTotalCost
+          ? message.total_cost_usd - this.lastTotalCost
+          : message.total_cost_usd,
       outcome: message.subtype,
       hitMaxTurns: message.subtype === "error_max_turns",
       toolErrors: this.toolErrors,
@@ -56,6 +62,7 @@ export class RunTracker {
       changedFiles: [...this.changedFiles],
     };
 
+    this.lastTotalCost = message.total_cost_usd;
     this.changedFiles.clear();
     this.toolErrors = 0;
     return summary;
