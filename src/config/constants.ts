@@ -8,6 +8,7 @@ export const SLASH_COMMANDS = [
   { command: "/remember [personal] <text>", description: "Save a memory (project, or personal)" },
   { command: "/memory", description: "List saved memories" },
   { command: "/forget <n>", description: "Delete memory number n" },
+  { command: "/checks", description: "Run type/test/lint/secret checks now" },
   { command: "/help", description: "Show slash commands" },
   { command: "/context", description: "Show context window usage" },
   { command: "/exit", description: "End the chat session" },

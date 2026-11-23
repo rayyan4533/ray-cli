@@ -10,6 +10,8 @@ import type { ModelId } from "../../config/models.js";
 import { handleSlashCommand } from "../../commands/chat.js";
 import { fmt } from "../format.js";
 import { contextSummary } from "../../agent/context.js";
+import { RunTracker } from "../../quality/signals.js";
+import { finishRun } from "../../quality/report.js";
 import { PANEL_LIST_OFFSET, PANEL_WIDTH, SessionsPanel, panelWindow } from "./SessionsPanel.js";
 import { useMouse } from "./use-mouse.js";
 
@@ -71,6 +73,7 @@ export function App({ mode, model, resume }: AppProps) {
     });
     sessionRef.current = session;
     syncStatus(session);
+    const tracker = new RunTracker();
 
     if (resumeId) {
       loadHistory(resumeId)
@@ -91,6 +94,12 @@ export function App({ mode, model, resume }: AppProps) {
             syncStatus(session);
           }
           for (const line of formatMessage(message, { model: session.model })) print(line);
+          const summary = tracker.observe(message);
+          if (summary) {
+            await finishRun(summary, { mode: session.mode, model: session.model }, (line) => {
+              if (!cancelled) print(line);
+            });
+          }
           if (message.type === "result") {
             setBusy(false);
             session.query

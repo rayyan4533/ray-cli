@@ -4,6 +4,8 @@ import { handleMessage } from "./message-handler.js";
 import { startSpinner, stopSpinner } from "../ui/spinner.js";
 import { buildModeOptions, type CliMode } from "./modes.js";
 import { DEFAULT_MODEL, type ModelId } from "../config/models.js";
+import { RunTracker } from "../quality/signals.js";
+import { finishRun } from "../quality/report.js";
 
 export type RunQueryOptions = {
   mode?: CliMode;
@@ -17,6 +19,8 @@ export async function runQuery(
 ): Promise<void> {
   const { verbose = false, mode = "agent", model = DEFAULT_MODEL } = options;
 
+  const tracker = new RunTracker();
+
   try {
     startSpinner("Agent working…");
     for await (const message of query({
@@ -24,6 +28,8 @@ export async function runQuery(
       options: buildModeOptions({ mode, model }),
     })) {
       handleMessage(message, { verbose, model });
+      const summary = tracker.observe(message);
+      if (summary) await finishRun(summary, { mode, model }, console.log);
       if (message.type !== "result") startSpinner("Agent working…");
     }
   } catch (error) {

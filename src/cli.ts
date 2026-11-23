@@ -10,6 +10,7 @@ import { findSession, listProjectSessions, printSessions } from "./agent/session
 import { DEFAULT_MODEL, MODEL_IDS, parseModelId, type ModelId } from "./config/models.js";
 import { wakeUp } from "./commands/wake-up.js";
 import { startUi } from "./commands/ui.js";
+import { showRuns } from "./quality/report.js";
 
 function parseMode(value: string): CliMode {
   const mode = parseCliMode(value);
@@ -128,6 +129,15 @@ export function createCli() {
     });
 
   program
+    .command("runs")
+    .description("Show the run log for this project")
+    .option("-n, --limit <n>", "How many to show", "10")
+    .option("-a, --all", "All projects, not just this one", false)
+    .action((opts: { limit: string; all: boolean }) => {
+      showRuns(Number(opts.limit), opts.all);
+    });
+
+  program
     .command("sessions")
     .description("List past chat sessions in this folder")
     .option("-n, --limit <n>", "How many to show", "10")
@@ -162,3 +172,5 @@ export function createCli() {
 
   return program;
 }
+
+

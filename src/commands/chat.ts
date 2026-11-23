@@ -14,6 +14,9 @@ import { startSpinner, stopSpinner } from "../ui/spinner.js";
 import { listProjectSessions, printSessions, renameProjectSession } from "../agent/sessions.js";
 import { contextDetails, contextSummary } from "../agent/context.js";
 import { MEMORY_FILES, addMemory, forgetMemory, listMemory } from "../agent/memory.js";
+import { RunTracker } from "../quality/signals.js";
+import { formatChecks, gitChangedFiles, runChecks } from "../quality/checks.js";
+import { finishRun } from "../quality/report.js";
 
 export type ChatOptions = {
   mode?: CliMode;
@@ -124,6 +127,13 @@ export async function handleSlashCommand(
       return "handled";
     }
 
+    case "/checks": {
+      const files = await gitChangedFiles();
+      print(fmt.dim(`Running checks (${files.length} changed file(s) in git)…`));
+      for (const line of formatChecks(await runChecks(files))) print(line);
+      return "handled";
+    }
+
     case "/sessions": {
       printSessions(await listProjectSessions());
       return "handled";
@@ -184,6 +194,7 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
   } = options;
   const session = createSession(initialMode, model, { resume, continueLast });
   const turnGate = createTurnGate();
+  const tracker = new RunTracker();
   let ended = false;
 
   const resuming = resume ? ` · resuming ${resume.slice(0, 8)}` : continueLast ? " · continuing last" : "";
@@ -197,6 +208,10 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
           session.id = message.session_id;
         }
         handleMessage(message, { verbose, model: session.model });
+        const summary = tracker.observe(message);
+        if (summary) {
+          await finishRun(summary, { mode: session.mode, model: session.model }, console.log);
+        }
         if (message.type === "result") {
           try {
             console.log(contextSummary(await session.query.getContextUsage()));
