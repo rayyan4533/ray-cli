@@ -1,6 +1,7 @@
 import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createPermissionHandler, type AskApproval } from "./permissions.js";
 import { DEFAULT_MODEL, type ModelId } from "../config/models.js";
+import { buildSystemPrompt } from "./memory.js";
 
 export type CliMode = "agent" | "ask" | "plan";
 
@@ -48,6 +49,7 @@ export function buildModeOptions({
 }: ModeSettings): Options {
   return {
     ...BASE_OPTIONS,
+    systemPrompt: buildSystemPrompt(),
     model,
     permissionMode: cliModeToPermissionMode(mode),
     canUseTool: createPermissionHandler(getMode, ask),

@@ -12,6 +12,8 @@ import { fmt } from "../ui/format.js";
 import { startSpinner, stopSpinner } from "../ui/spinner.js";
 
 import { listProjectSessions, printSessions, renameProjectSession } from "../agent/sessions.js";
+import { contextDetails, contextSummary } from "../agent/context.js";
+import { MEMORY_FILES, addMemory, forgetMemory, listMemory } from "../agent/memory.js";
 
 export type ChatOptions = {
   mode?: CliMode;
@@ -28,7 +30,7 @@ type Print = (line: string) => void;
 function printSlashHelp(print: Print): void {
   print(fmt.label("\nSlash commands:"));
   for (const { command, description } of SLASH_COMMANDS) {
-    print(fmt.dim(`  ${command.padEnd(22)} ${description}`));
+    print(fmt.dim(`  ${command.padEnd(28)} ${description}`));
   }
   print("");
 }
@@ -53,7 +55,7 @@ export async function handleSlashCommand(
     case "/context": {
       try {
         const usage = await session.query.getContextUsage();
-        print(fmt.system(JSON.stringify(usage, null, 2)));
+        for (const line of contextDetails(usage)) print(line);
       } catch {
         print(fmt.error("Context usage not available for this session."));
       }
@@ -86,6 +88,39 @@ export async function handleSlashCommand(
       await session.query.setModel(newModel);
       session.model = newModel;
       print(fmt.mode(`Model switched to ${newModel}`));
+      return "handled";
+    }
+
+    case "/remember": {
+      const personal = rest[0] === "personal";
+      const text = (personal ? rest.slice(1) : rest).join(" ").trim();
+      if (!text) {
+        print(fmt.error("Usage: /remember [personal] <text>"));
+        return "handled";
+      }
+      const scope = personal ? "personal" : "project";
+      addMemory(text, scope);
+      print(fmt.mode(`Remembered (${scope}): ${text}`));
+      print(fmt.dim(`  Saved to ${MEMORY_FILES[scope]} · used from the next session`));
+      return "handled";
+    }
+
+    case "/memory": {
+      const items = listMemory();
+      if (items.length === 0) {
+        print(fmt.dim("No memories yet. Add one with /remember <text>."));
+        return "handled";
+      }
+      print(fmt.label("\nMemory:"));
+      items.forEach((m, i) => print(`  ${fmt.system(String(i + 1).padStart(2))}. ${fmt.dim(`[${m.scope}]`)} ${m.text}`));
+      print(fmt.dim("  Remove one with /forget <number>\n"));
+      return "handled";
+    }
+
+    case "/forget": {
+      const n = Number(arg);
+      const removed = Number.isInteger(n) && n > 0 ? forgetMemory(n) : null;
+      print(removed ? fmt.mode(`Forgot (${removed.scope}): ${removed.text}`) : fmt.error("Usage: /forget <number from /memory>"));
       return "handled";
     }
 
@@ -163,6 +198,11 @@ export async function startChat(options: ChatOptions = {}): Promise<void> {
         }
         handleMessage(message, { verbose, model: session.model });
         if (message.type === "result") {
+          try {
+            console.log(contextSummary(await session.query.getContextUsage()));
+          } catch {
+            // context usage is a nice-to-have; never break the chat over it
+          }
           turnGate.finish();
         } else if (turnGate.active) {
           startSpinner("Agent working…");

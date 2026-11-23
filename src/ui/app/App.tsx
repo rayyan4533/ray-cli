@@ -9,6 +9,7 @@ import { listProjectSessions, loadHistory, renameProjectSession } from "../../ag
 import type { ModelId } from "../../config/models.js";
 import { handleSlashCommand } from "../../commands/chat.js";
 import { fmt } from "../format.js";
+import { contextSummary } from "../../agent/context.js";
 import { PANEL_LIST_OFFSET, PANEL_WIDTH, SessionsPanel, panelWindow } from "./SessionsPanel.js";
 import { useMouse } from "./use-mouse.js";
 
@@ -40,6 +41,7 @@ export function App({ mode, model, resume }: AppProps) {
   const [panelIndex, setPanelIndex] = useState(0);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   // Changing this closes the current agent session and opens the chosen one.
+  const [contextLine, setContextLine] = useState<string | null>(null);
   const [resumeId, setResumeId] = useState<string | undefined>(resume);
 
   const sessionRef = useRef<AgentSession | null>(null);
@@ -60,6 +62,7 @@ export function App({ mode, model, resume }: AppProps) {
 
     setLines([]);
     setBusy(false);
+    setContextLine(null);
 
     const session = createSession(mode, model, {
       resume: resumeId,
@@ -88,7 +91,13 @@ export function App({ mode, model, resume }: AppProps) {
             syncStatus(session);
           }
           for (const line of formatMessage(message, { model: session.model })) print(line);
-          if (message.type === "result") setBusy(false);
+          if (message.type === "result") {
+            setBusy(false);
+            session.query
+              .getContextUsage()
+              .then((usage) => !cancelled && setContextLine(contextSummary(usage)))
+              .catch(() => {});
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -222,6 +231,7 @@ export function App({ mode, model, resume }: AppProps) {
           ray-cli
         </Text>
         <Text dimColor>
+          {contextLine ? `${contextLine} · ` : ""}
           {status.mode} · {status.model} · {shortId} · {panelOpen ? "✕ close" : "☰ sessions"}
         </Text>
       </Box>

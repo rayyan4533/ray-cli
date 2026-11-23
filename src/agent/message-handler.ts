@@ -1,6 +1,7 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { fmt, truncate } from "../ui/format.js";
 import { stopSpinner } from "../ui/spinner.js";
+import { formatTokens } from "./context.js";
 
 export type MessageHandlerOptions = {
   verbose?: boolean;
@@ -41,7 +42,11 @@ export function formatMessage(
           )
         );
       } else if (message.subtype === "compact_boundary") {
-        lines.push(fmt.system("Context compacted — older history summarized"));
+        const { trigger, pre_tokens, post_tokens } = message.compact_metadata;
+        const after = post_tokens ? ` → ${formatTokens(post_tokens)}` : "";
+        lines.push(
+          fmt.tool(`⟳ Context compacted (${trigger}) · ${formatTokens(pre_tokens)}${after} tokens — older history summarized`)
+        );
       }
       break;
     }
