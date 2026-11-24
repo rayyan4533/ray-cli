@@ -4,7 +4,8 @@
   "description": "Learn the Claude Agent SDK by building a CLI",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "hey": "node bin/hey.mjs"
   },
   "keywords": [],
   "author": "",
@@ -38,5 +39,8 @@
     "ink-text-input": "^6.0.0",
     "ora": "^10.0.0",
     "react": "^19.3.1"
+  },
+  "bin": {
+    "hey": "./bin/hey.mjs"
   }
 }

@@ -131,6 +131,7 @@ export function App({ mode, model, resume }: AppProps) {
           `  Allowed ${toolName}`,
           `  Denied ${toolName}`
         ),
+      askYesNo: (question) => ask(fmt.tool(question.replace(/\n\s*/g, " · ")), "  Allowed", "  Refused"),
     });
     const controller = new TaskController(session, {
       print: (line) => !cancelled && print(line),

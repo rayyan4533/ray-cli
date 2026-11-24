@@ -51,6 +51,7 @@ export async function suggestRules(): Promise<{ rules: string[]; costUsd: number
       canUseTool: async () => ({ behavior: "deny", message: "No tools needed: just reply with rules." }),
       systemPrompt: "You review failed coding-agent runs and write short project rules. Reply only with the rules.",
       persistSession: false,
+      settingSources: [],
     },
   })) {
     if (message.type === "result") {

@@ -2,6 +2,10 @@ import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createPermissionHandler, type ApprovalLevel, type AskApproval } from "./permissions.js";
 import { DEFAULT_MODEL, type ModelId } from "../config/models.js";
 import { buildSystemPrompt } from "./memory.js";
+import { confirm } from "@inquirer/prompts";
+import { stopSpinner } from "../ui/spinner.js";
+import { SANDBOX, createGuardrailHook, type AskYesNo } from "./guardrails.js";
+import { saveGuardrailEvent } from "../quality/db.js";
 
 export type CliMode = "agent" | "ask" | "plan";
 
@@ -24,6 +28,13 @@ export type ModeSettings = {
   continueLast?: boolean;
   ask?: AskApproval;
   getApprovals?: () => ApprovalLevel;
+  askYesNo?: AskYesNo; // for guardrail questions
+};
+
+// In plain chat and talk, guardrail questions use a terminal prompt.
+const askInTerminal: AskYesNo = (question) => {
+  stopSpinner();
+  return confirm({ message: question, default: false });
 };
 export function parseCliMode(value: string): CliMode | null {
   if (value === "agent" || value === "ask" || value === "plan") {
@@ -51,6 +62,7 @@ export function buildModeOptions({
   continueLast = false,
   ask,
   getApprovals,
+  askYesNo = askInTerminal,
 }: ModeSettings): Options {
   return {
     ...BASE_OPTIONS,
@@ -60,5 +72,25 @@ export function buildModeOptions({
     canUseTool: createPermissionHandler(getMode, ask, getApprovals),
     resume,
     continue: continueLast,
+    // Guardrails: hard rules checked before EVERY tool, in every mode (Chapter 16).
+    hooks: {
+      PreToolUse: [
+        {
+          hooks: [
+            createGuardrailHook(process.cwd(), askYesNo, (event) => {
+              try {
+                saveGuardrailEvent(process.cwd(), event);
+              } catch {
+                // logging must never break a tool call
+              }
+            }),
+          ],
+        },
+      ],
+    },
+    // Only ray's own setup: none of your personal ~/.claude settings, plugins or memory.
+    settingSources: [],
+    // The OS sandbox: commands can only write inside the project and reach package registries.
+    sandbox: SANDBOX,
   };
 }

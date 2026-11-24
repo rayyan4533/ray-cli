@@ -1,4 +1,4 @@
-import { reasonCounts, statsByModel, statsBySkill, type ModelStats, type ReasonCount } from "./db.js";
+import { guardrailCounts, reasonCounts, statsByModel, statsBySkill, type ModelStats, type ReasonCount } from "./db.js";
 import { readScripts } from "./checks.js";
 import { fmt } from "../ui/format.js";
 
@@ -72,6 +72,10 @@ export function statsReport(allProjects = false, days = 30): string[] {
   const bad = reasons.filter((r) => r.score === "bad");
   if (bad.length) {
     lines.push(fmt.dim(`  top 👎 reasons: ${bad.slice(0, 4).map((r) => `${r.reason} (${r.count})`).join(" · ")}`));
+  }
+  const guards = guardrailCounts(allProjects, days);
+  if (guards.length) {
+    lines.push(fmt.dim(`  🛡 guardrails: ${guards.map((g) => `${g.rule} ${g.decision} (${g.count})`).join(" · ")}`));
   }
   lines.push(...hints(models, reasons, allProjects), "");
   return lines;

@@ -78,6 +78,17 @@ function open(): DatabaseSync {
       note       TEXT    -- your own words when you picked "Other"
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS guardrail_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      project    TEXT NOT NULL,
+      tool       TEXT NOT NULL,
+      rule       TEXT NOT NULL,
+      target     TEXT NOT NULL,
+      decision   TEXT NOT NULL CHECK (decision IN ('blocked', 'allowed', 'refused'))
+    )
+  `);
   return db;
 }
 
@@ -122,6 +133,27 @@ export function saveRun(run: RunRecord): number {
       run.skill
     );
   return Number(result.lastInsertRowid);
+}
+
+export type GuardrailEventRow = { tool: string; rule: string; target: string; decision: string };
+
+// Every time a guardrail blocked something or asked you (Chapter 16).
+export function saveGuardrailEvent(project: string, event: GuardrailEventRow): void {
+  open()
+    .prepare("INSERT INTO guardrail_events (project, tool, rule, target, decision) VALUES (?, ?, ?, ?, ?)")
+    .run(project, event.tool, event.rule, event.target.slice(0, 300), event.decision);
+}
+
+export type GuardrailCount = { rule: string; decision: string; count: number };
+
+export function guardrailCounts(allProjects: boolean, days = 30, project = process.cwd()): GuardrailCount[] {
+  return open()
+    .prepare(
+      `SELECT rule, decision, COUNT(*) AS count FROM guardrail_events
+       WHERE created_at >= datetime('now', ?) AND ${allProjects ? "1 = 1" : "project = ?"}
+       GROUP BY rule, decision ORDER BY count DESC`
+    )
+    .all(...(allProjects ? [`-${days} days`] : [`-${days} days`, project])) as unknown as GuardrailCount[];
 }
 
 export type Score = "good" | "bad";

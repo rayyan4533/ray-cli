@@ -50,6 +50,7 @@ async function byHaiku(message: string, skills: Skill[]): Promise<{ skill: Skill
       canUseTool: async () => ({ behavior: "deny", message: "No tools: reply with one name." }),
       systemPrompt: "You classify coding tasks. Reply with one word only.",
       persistSession: false,
+      settingSources: [],
     },
   })) {
     if (m.type === "result") {

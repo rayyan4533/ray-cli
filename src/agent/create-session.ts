@@ -20,6 +20,7 @@ export type ResumeSettings = {
   resume?: string;
   continueLast?: boolean;
   ask?: AskApproval;
+  askYesNo?: (question: string) => Promise<boolean>; // guardrail questions
 };
 
 export function createSession(
