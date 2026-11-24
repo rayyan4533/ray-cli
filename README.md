@@ -26,7 +26,7 @@ Open any project, say `hey ray`, and ask it to fix, build, refactor or explain c
 Needs **Node 22.5+** (for the built-in SQLite) and **pnpm**.
 
 ```bash
-git clone https://github.com/rayyan4533/ray-cli.git && cd ray-cli
+git clone https://github.com/rayyan4533/ray-cli-coding-tool.git && cd ray-cli-coding-tool
 pnpm install
 cp .env.example .env                       # add your ANTHROPIC_API_KEY
 ln -s "$PWD/bin/hey.mjs" ~/.local/bin/hey  # make `hey` available everywhere
