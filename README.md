@@ -129,4 +129,4 @@ Everything stays on your machine:
 | `~/.ray-cli/memory.md` | personal memory |
 | `~/.ray-cli/skills/` | your personal skills |
 | `<project>/RAY.md` | project rules |
-| `<project>/.ray/skills/` | project skills |
+| `<project>/.ray/skills/` | project skills|
