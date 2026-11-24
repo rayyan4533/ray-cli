@@ -24,5 +24,8 @@ if (!existsSync(tsx)) {
 }
 
 const args = rest.length > 0 ? rest : ["ui"]; // plain "hey ray" = the full-screen UI
-const child = spawn(tsx, [join(root, "src", "index.ts"), ...args], { stdio: "inherit", env });
+// --tsconfig: always ray's own TypeScript settings. Without it, tsx looks for a
+// tsconfig.json in the folder you're in, and the full-screen UI (JSX) breaks there.
+const tsconfig = join(root, "tsconfig.json");
+const child = spawn(tsx, ["--tsconfig", tsconfig, join(root, "src", "index.ts"), ...args], { stdio: "inherit", env });
 child.on("exit", (code) => process.exit(code ?? 0));

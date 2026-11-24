@@ -58,8 +58,9 @@ UI: the yellow y/n bar. Chat/talk: a terminal prompt that defaults to **no**.
 
 ## Bonus: `hey ray`
 `bin/hey.mjs` is registered as the `hey` command (`"bin"` in package.json) and
-linked onto the PATH with a symlink in `~/Library/pnpm` (pnpm 12 has no
-`link --global`). `hey ray` = the full-screen UI in **whatever folder you're
+linked onto the PATH with a symlink in `~/.local/bin` (pnpm 12 has no
+`link --global`; `~/.local/bin` is on the PATH via `~/.bash_profile`, which
+every new macOS Terminal window reads). `hey ray` = the full-screen UI in **whatever folder you're
 in**; `hey ray chat`, `hey ray stats` … = the other commands. It always loads
 ray's own `.env` (`DOTENV_CONFIG_PATH`), never the current project's.
-Undo: `rm ~/Library/pnpm/hey`.
+Undo: `rm ~/.local/bin/hey`.
