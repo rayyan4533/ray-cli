@@ -1,4 +1,4 @@
-# ray-cli
+# ray
 
 A coding agent for your terminal, built on the Claude Agent SDK.
 
